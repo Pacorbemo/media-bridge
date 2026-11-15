@@ -4,6 +4,12 @@ Lo que cambia en cada versión de media-bridge. La versión instalada se ve con 
 
 ## Sin publicar
 
+Nada todavía.
+
+## 0.3.0
+
+Publicada el 2026-11-15.
+
 ### Añadido
 
 - **Refuerzos de seguridad opcionales**, desactivados por defecto:

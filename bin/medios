@@ -9,6 +9,7 @@ if [ ! -f "$CONF" ]; then
   echo "Cópiala desde config.example y edítala."
   exit 1
 fi
+# shellcheck source=/dev/null
 source "$CONF"
 
 : "${SERVIDOR:?Falta SERVIDOR en $CONF}"
@@ -80,6 +81,7 @@ listar_videos() {
   for e in $EXTENSIONES; do
     filtro+="${filtro:+ -o} -iname '*.$e'"
   done
+  # shellcheck disable=SC2029
   ssh -o BatchMode=yes -o ConnectTimeout=8 "$USUARIO_SSH@$SERVIDOR" \
     "cd $(printf '%q' "$RUTA_MEDIOS") && find$carpetas \\( -type f -o -type l \\) \\( $filtro \\)"
 }

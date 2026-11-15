@@ -34,6 +34,7 @@ fi
   printf 'EXTENSIONES=%q\n' "${EXTENSIONES:-mkv mp4 avi m4v mov wmv mpg mpeg ts webm}"
 } > "$MEDIA_BRIDGE_CONFIG"
 
+# shellcheck source=/dev/null
 source "$MEDIA_BRIDGE_CONFIG"
 
 pids=()
@@ -89,10 +90,10 @@ while :; do
     iniciar_dlna
     continue
   fi
-  for p in "${pids[@]}" $pid_dlna; do
+  for p in "${pids[@]}" ${pid_dlna:+"$pid_dlna"}; do
     if ! kill -0 "$p" 2>/dev/null; then
       echo "Un proceso se ha parado (pid $p); reinicio el contenedor"
-      kill "${pids[@]}" $pid_dlna 2>/dev/null
+      kill "${pids[@]}" ${pid_dlna:+"$pid_dlna"} 2>/dev/null
       fusermount3 -uz /media 2>/dev/null
       exit 1
     fi

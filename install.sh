@@ -58,6 +58,7 @@ if systemctl is-enabled minidlna.service >/dev/null 2>&1; then
   echo "  Desactívalo con: sudo systemctl disable --now minidlna.service"
 fi
 
+# shellcheck source=/dev/null
 source "$CONF_DIR/config"
 puertos=()
 for p in ${REENVIOS:-}; do puertos+=("$p/tcp"); done
@@ -69,6 +70,7 @@ for p in "${puertos[@]}"; do
   done
 done
 if [ "$FIREWALL" = si ]; then
+  # shellcheck disable=SC2086
   for r in "${reglas[@]}"; do sudo $r; done
 elif command -v ufw >/dev/null && [ ${#reglas[@]} -gt 0 ]; then
   echo "Si usas ufw, abre los puertos solo a la red local con ./install.sh --firewall o con:"

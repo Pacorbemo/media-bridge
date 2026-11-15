@@ -4,6 +4,43 @@ set -uo pipefail
 CONF="${MEDIA_BRIDGE_CONFIG:-$HOME/.config/media-bridge/config}"
 SHARE="${MEDIA_BRIDGE_SHARE:-$HOME/.local/share/media-bridge}"
 
+case "${1:-}" in
+  version)
+    cat "$SHARE/VERSION" 2>/dev/null || echo "desconocida"
+    exit 0
+    ;;
+  actualizar)
+    if [ "${MEDIA_BRIDGE_DOCKER:-}" = 1 ]; then
+      echo "En Docker se actualiza desde el clon del repo con: git pull && docker compose up -d --build"
+      exit 1
+    fi
+    clon=$(cat "$SHARE/clon" 2>/dev/null)
+    if [ -z "$clon" ] || [ ! -e "$clon/.git" ]; then
+      echo "No encuentro el clon del repo desde el que se instaló."
+      echo "Para actualizar, clónalo de nuevo e instálalo otra vez (tu configuración se mantiene):"
+      echo "  git clone https://github.com/Pacorbemo/media-bridge.git"
+      echo "  cd media-bridge && ./install.sh"
+      exit 1
+    fi
+    if ! command -v git >/dev/null; then
+      echo "Hace falta git para actualizar"
+      exit 1
+    fi
+    antes=$(cat "$SHARE/VERSION" 2>/dev/null)
+    echo "Actualizando desde $clon"
+    if ! git -C "$clon" pull --ff-only; then
+      echo "No se pudo bajar la última versión. Revisa el clon con: git -C \"$clon\" status"
+      exit 1
+    fi
+    "$clon/install.sh" || exit 1
+    echo "Versión: ${antes:-desconocida} → $(cat "$SHARE/VERSION" 2>/dev/null)"
+    if systemctl --user list-units --state=active --plain --no-legend 'media-bridge-*' | grep -q .; then
+      echo "Lo que está encendido sigue con la versión anterior hasta que hagas: medios off && medios on"
+    fi
+    exit 0
+    ;;
+esac
+
 if [ ! -f "$CONF" ]; then
   echo "Falta la configuración: $CONF"
   echo "Cópiala desde config.example y edítala."
@@ -29,7 +66,7 @@ if [ -z "${CARPETAS+x}" ]; then
 fi
 
 uso() {
-  echo "Uso: medios on | off | estado | progreso | reescanear | buscar \"texto\""
+  echo "Uso: medios on | off | estado | progreso | reescanear | buscar \"texto\" | actualizar | version"
   exit 1
 }
 

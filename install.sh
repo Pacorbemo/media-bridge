@@ -29,6 +29,8 @@ if [ ${#faltan[@]} -gt 0 ]; then
 fi
 
 install -Dm755 bin/medios "$BIN/medios"
+install -Dm644 VERSION "$SHARE/VERSION"
+pwd -P > "$SHARE/clon"
 install -Dm644 lib/buscar.py "$SHARE/buscar.py"
 install -Dm644 completions/medios.zsh "$SHARE/medios.zsh"
 install -Dm644 completions/medios.bash "$SHARE/medios.bash"

@@ -136,6 +136,10 @@ Parecidos (1):
 
 No necesita que el DLNA esté encendido: busca directamente en el servidor por SSH.
 
+### Comprobaciones al encender
+
+Antes de arrancar nada, `medios on` comprueba que hay red local, que la red local no sale por Tailscale, que entra al servidor por SSH, que existen las carpetas y que los puertos están libres. Si algo falla lo marca con ✘ y no enciende nada; con `medios on --forzar` se salta las comprobaciones. También avisa, sin pararse, si ufw no tiene abiertos los puertos o si has cambiado `CARPETAS` y el DLNA va a indexar todo de nuevo. En Docker se hacen las mismas comprobaciones al arrancar el contenedor.
+
 ### Reescaneo automático
 
 Cada `REESCANEO_SEGUNDOS` (una hora por defecto) compara la lista de vídeos del servidor con la que había en el último indexado. Si no ha cambiado nada, no hace nada. Si hay vídeos nuevos o borrados, reinicia el DLNA para que los añada, salvo que alguien esté viendo algo: entonces espera a la siguiente vuelta. Comparar la lista es barato (un `find` por SSH), así que puedes bajar el intervalo a unos minutos sin problema.

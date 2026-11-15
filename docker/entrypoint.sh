@@ -38,6 +38,10 @@ fi
 # shellcheck source=/dev/null
 source "$MEDIA_BRIDGE_CONFIG"
 
+if ! medios _comprobar; then
+  exit 1
+fi
+
 pids=()
 pid_dlna=""
 reiniciar=0

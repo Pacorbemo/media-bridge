@@ -27,7 +27,9 @@ ayuda_comando() {
   case "$1" in
     on)
       echo "medios on"
-      echo "  Antes de arrancar comprueba la configuración y avisa de los problemas que encuentre."
+      echo "  Antes de arrancar comprueba la red local, que no salga por Tailscale, el SSH al servidor,"
+      echo "  las carpetas y los puertos. Si algo falla (✘) no enciende nada; medios on --forzar se lo salta."
+      echo "  También avisa (!) si ufw no abre los puertos o si va a reindexar todo por cambiar CARPETAS."
       echo "  Después monta las carpetas del servidor por sshfs, arranca el DLNA con el reescaneo"
       echo "  automático y reenvía los puertos de REENVIOS. Termina enseñando el estado."
       echo "  En Docker no se usa: se enciende con docker compose up -d."
@@ -299,6 +301,134 @@ generar_conf_dlna() {
   echo "$conf"
 }
 
+ERRORES=0
+
+bien() { echo "  ✔ $*"; }
+mal() { echo "  ✘ $*"; ERRORES=$((ERRORES + 1)); }
+aviso() { echo "  ! $*"; }
+
+unidad_activa() {
+  ! en_docker && systemctl --user -q is-active "$1" 2>/dev/null
+}
+
+carpetas_que_faltan() {
+  local lista="" c
+  for c in "${CARPETAS[@]}"; do
+    lista+=" $(printf '%q' "$c")"
+  done
+  # shellcheck disable=SC2029
+  ssh -o BatchMode=yes -o ConnectTimeout=8 "$USUARIO_SSH@$SERVIDOR" \
+    "cd $(printf '%q' "$RUTA_MEDIOS") 2>/dev/null || { echo $(printf '%q' "$RUTA_MEDIOS"); exit 0; }; for c in$lista; do [ -d \"\$c\" ] || echo \"\$c\"; done"
+}
+
+comprobar_red() {
+  local iface ip gw sonda d
+  iface=$(interfaz)
+  ip=$(ip_local)
+  if [ -z "$iface" ] || [ -z "$ip" ]; then
+    mal "No encuentro la red local (interfaz \"${iface:-ninguna}\" sin IP). Revisa la conexión o INTERFAZ en la configuración"
+    return
+  fi
+  bien "Red local: $ip en $iface"
+  gw=$(ip route show default | awk '{print $3; exit}')
+  sonda="${ip%.*}.254"
+  [ "$sonda" = "$ip" ] && sonda="${ip%.*}.253"
+  for d in $gw $sonda; do
+    if ip route get "$d" 2>/dev/null | grep -q "dev tailscale0"; then
+      mal "La red local sale por Tailscale: el equipo contestaría a la televisión por el túnel. Suele arreglarse con: sudo tailscale set --accept-routes=false"
+      return
+    fi
+  done
+  bien "La red local no pasa por Tailscale"
+}
+
+comprobar_servidor() {
+  local faltan
+  if ! ssh -o BatchMode=yes -o ConnectTimeout=8 "$USUARIO_SSH@$SERVIDOR" true 2>/dev/null; then
+    if command -v tailscale >/dev/null && ! tailscale status >/dev/null 2>&1; then
+      mal "Tailscale no está conectado en este equipo"
+    else
+      mal "No puedo entrar por SSH a $USUARIO_SSH@$SERVIDOR: servidor apagado, sin clave SSH o SERVIDOR equivocado"
+    fi
+    return
+  fi
+  bien "SSH a $USUARIO_SSH@$SERVIDOR"
+  faltan=$(carpetas_que_faltan)
+  if [ -n "$faltan" ]; then
+    mal "En el servidor no existen: $(printf '%s' "$faltan" | paste -sd, - | sed 's/,/, /g')"
+  else
+    bien "Carpetas en el servidor: ${#CARPETAS[@]}"
+  fi
+}
+
+comprobar_puerto() {
+  local p=$1
+  if ss -Hltn "( sport = :$p )" | grep -q .; then
+    if [ "$p" = "$PUERTO_DLNA" ] && ! en_docker && systemctl -q is-active minidlna.service 2>/dev/null; then
+      mal "El puerto $p lo usa el minidlna del sistema. Desactívalo con: sudo systemctl disable --now minidlna.service"
+    else
+      mal "El puerto $p ya lo usa otro programa"
+    fi
+    return 1
+  fi
+  return 0
+}
+
+comprobar_puertos() {
+  local p libres=""
+  for p in $REENVIOS; do
+    unidad_activa "media-bridge-forward@$p.service" && continue
+    comprobar_puerto "$p" && libres+=" $p"
+  done
+  if [ "$DLNA" = si ] && ! dlna_activo; then
+    comprobar_puerto "$PUERTO_DLNA" && libres+=" $PUERTO_DLNA"
+  fi
+  [ -n "$libres" ] && bien "Puertos libres:$libres"
+  return 0
+}
+
+comprobar_firewall() {
+  local p puertos="$REENVIOS" cerrados=""
+  en_docker && return
+  systemctl -q is-active ufw 2>/dev/null || return
+  [ -r /etc/ufw/user.rules ] || return
+  [ "$DLNA" = si ] && puertos+=" $PUERTO_DLNA 1900"
+  for p in $puertos; do
+    grep -qE -- "--dport $p( |$)" /etc/ufw/user.rules || cerrados+="${cerrados:+, }$p"
+  done
+  if [ -n "$cerrados" ]; then
+    aviso "ufw está activo y no abre: $cerrados. La televisión no llegará; ábrelos con ./install.sh --firewall"
+  fi
+}
+
+comprobar_indice() {
+  local conf="$DB_DLNA/minidlna.conf" antes ahora c
+  [ "$DLNA" = si ] || return
+  [ -f "$DB_DLNA/files.db" ] && [ -f "$conf" ] || return
+  dlna_activo && return
+  antes=$(grep '^media_dir=' "$conf")
+  ahora=$(for c in "${CARPETAS[@]}"; do echo "media_dir=V,$PUNTO_MONTAJE/$c"; done)
+  if [ "$antes" != "$ahora" ]; then
+    aviso "Has cambiado CARPETAS: el DLNA va a indexar todo de nuevo. Sigue el avance con: medios progreso"
+  fi
+}
+
+comprobar() {
+  ERRORES=0
+  echo "Comprobando antes de encender:"
+  comprobar_red
+  comprobar_servidor
+  comprobar_puertos
+  comprobar_firewall
+  comprobar_indice
+  if [ "$ERRORES" -gt 0 ]; then
+    echo "No enciendo nada hasta que se corrija lo marcado con ✘ (o fuerza con: medios on --forzar)"
+    return 1
+  fi
+  echo
+  return 0
+}
+
 case "${1:-estado}" in
   on|off)
     if en_docker; then
@@ -307,6 +437,9 @@ case "${1:-estado}" in
     fi
     ;;&
   on)
+    if [ "${2:-}" != "--forzar" ]; then
+      comprobar || exit 1
+    fi
     if [ "$DLNA" = si ]; then
       systemctl --user start media-bridge-mount.service media-bridge-dlna.service
       if [ "$REESCANEO_SEGUNDOS" -gt 0 ]; then
@@ -376,6 +509,10 @@ case "${1:-estado}" in
     echo "Reescaneando (antes: ${antes:-?} vídeos)..."
     sleep 20
     echo "Ahora: $(contar) vídeos (si hay muchos nuevos, sigue sumando un rato)"
+    ;;
+  _comprobar)
+    comprobar
+    exit
     ;;
   _montar)
     mkdir -p "$PUNTO_MONTAJE"

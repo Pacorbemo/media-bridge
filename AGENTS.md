@@ -52,6 +52,8 @@ Solo si el usuario lo pide o no quiere instalar paquetes. Explícale antes el av
 
 ## Verificación
 
+`medios on` ya hace las comprobaciones previas (red local, choque con Tailscale, SSH, carpetas, puertos, ufw e índice) y no enciende nada si alguna falla. Para verlas sin encender nada: `medios _comprobar`. No uses `--forzar` para saltarte un ✘ sin entender antes qué lo causa.
+
 - **Cada reenvío:** `curl` a `http://IP-local-del-puente:PUERTO` desde el propio puente.
 - **DLNA:** `medios progreso` hasta que diga "terminado". La primera indexación tarda: en el caso probado, unos 180 vídeos por minuto sobre sshfs.
 - **Descubrimiento:** la página `http://IP-local-del-puente:8200/` lista los clientes que se han conectado. Si aparece la IP de la televisión, ya ha encontrado el servidor.

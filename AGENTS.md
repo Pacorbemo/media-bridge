@@ -37,6 +37,10 @@ Responde en el idioma del usuario. El proyecto, los mensajes del comando y el RE
 4. **Firewall:** usa `./install.sh --firewall` solo si el usuario está de acuerdo. Abre los puertos únicamente a rangos privados. Si ya tiene reglas equivalentes, no las dupliques.
 5. `medios on` y después `medios estado`.
 
+### Actualizar
+
+`medios actualizar` hace `git pull --ff-only` en el clon desde el que se instaló (`install.sh` guarda su ruta en `~/.local/share/media-bridge/clon`) y vuelve a ejecutar `install.sh`. No toca la configuración ni reinicia lo que esté encendido: avisa de que hay que hacer `medios off` y `medios on` para usar la versión nueva. Si el `pull` falla porque el clon tiene cambios locales, no los descartes: enséñaselos al usuario. `medios version` dice qué versión hay instalada.
+
 ### Con Docker
 
 Solo si el usuario lo pide o no quiere instalar paquetes. Explícale antes el aviso del README: el contenedor necesita red `host`, `/dev/fuse`, `SYS_ADMIN` y su clave SSH, así que aísla poco y es más difícil de depurar.
@@ -75,9 +79,11 @@ Solo si el usuario lo pide o no quiere instalar paquetes. Explícale antes el av
 
 ## Estructura
 
-- `bin/medios`: el comando. Lee la configuración y también hace de punto de entrada de los servicios, con los subcomandos internos que empiezan por `_`.
+- `bin/medios`: el comando. Lee la configuración y también hace de punto de entrada de los servicios, con los subcomandos internos que empiezan por `_`. `version` y `actualizar` se resuelven antes de leer la configuración, así que funcionan aunque no exista.
 - `systemd/`: servicios de usuario `media-bridge-*` (montaje, DLNA, reenvíos y reescaneo horario).
 - `lib/buscar.py`: la búsqueda aproximada de `medios buscar`.
 - `completions/`: autocompletado para zsh y bash.
 - `install.sh` / `uninstall.sh`.
+- `VERSION`: la versión actual. Al publicar una nueva, súbela aquí y crea la etiqueta `vX.Y.Z` sobre ese commit.
+- `.github/workflows/shellcheck.yml`: pasa `shellcheck` a `bin/medios`, `install.sh`, `uninstall.sh` y `docker/entrypoint.sh` en cada push y pull request. Si cambias un script, que siga pasando; si un aviso es intencionado, desactívalo solo en esa línea con `# shellcheck disable=SCxxxx`.
 - `Dockerfile`, `compose.yaml`, `docker/entrypoint.sh` y `media-bridge.env.example`: la variante en Docker. El entrypoint genera la configuración a partir de las variables de entorno y vigila los procesos. `medios` detecta que está dentro por `MEDIA_BRIDGE_DOCKER=1`, y en ese caso `reescanear` reinicia el DLNA enviando `USR1` al proceso 1.

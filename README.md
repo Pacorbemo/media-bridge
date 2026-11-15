@@ -73,6 +73,7 @@ Edita `media-bridge.env` con los datos de tu servidor. Aquí `CARPETAS` va separ
 | Progreso del indexado | `docker compose exec media-bridge medios progreso` |
 | Reescanear | `docker compose exec media-bridge medios reescanear` |
 | Ver qué está pasando | `docker compose logs -f` |
+| Actualizar | `git pull && docker compose up -d --build` |
 
 El índice del DLNA se guarda en un volumen de Docker, así que sobrevive a `docker compose down`.
 
@@ -118,6 +119,8 @@ Si usas Claude Code, Codex, Cursor u otro asistente, abre el repo con él y píd
 | `medios progreso` | Cuántos vídeos lleva indexados el DLNA, en directo, con ritmo y tiempo restante |
 | `medios reescanear` | Busca vídeos nuevos ya (si no, lo hace solo cada hora cuando nadie está viendo nada) |
 | `medios buscar "texto"` | Busca en el servidor sin tener que acertar el nombre exacto |
+| `medios actualizar` | Baja la última versión del repo y la vuelve a instalar, conservando tu configuración |
+| `medios version` | Qué versión tienes instalada |
 
 `medios buscar` no distingue mayúsculas, tildes ni separadores, acepta las palabras en cualquier orden y tolera erratas:
 
@@ -141,6 +144,14 @@ En la televisión, el servidor aparece en la lista de fuentes o en la app de med
 - **Plex no sirve.** Aunque reenvíes el 32400, la app de Plex pide Plex Pass o Remote Watch Pass, porque plex.tv ve que la televisión y el servidor tienen distinta IP pública. Eso no se arregla desde la red.
 - **Enlaces simbólicos.** Se siguen en el servidor, así que valen carpetas con enlaces a montajes en la nube (rclone y similares). Esos vídeos tardan más en arrancar.
 - **Los servicios web ven la IP de Tailscale del portátil**, no la de la televisión. Si Jellyfin limita la calidad por considerarlo remoto, añade `100.64.0.0/10` a sus redes LAN.
+
+## Actualizar
+
+```bash
+medios actualizar
+```
+
+Hace `git pull` en el clon desde el que instalaste y vuelve a ejecutar `./install.sh`. Tu configuración no se toca, y lo que esté encendido no se reinicia: sigue con la versión anterior hasta que hagas `medios off` y `medios on`. Si borraste el clon, te explica cómo volver a clonarlo.
 
 ## Desinstalar
 

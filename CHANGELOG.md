@@ -7,6 +7,8 @@ Lo que cambia en cada versión de media-bridge. La versión instalada se ve con 
 ### Añadido
 
 - **Carpeta «Añadidos recientemente» en el DLNA**, opcional (`RECIENTES=si`). Enseña los últimos `RECIENTES_CANTIDAD` vídeos (10 por defecto) que han llegado al servidor, numerados del más nuevo al más antiguo y con el nombre de su carpeta. `RECIENTES_CARPETAS` elige de qué carpetas salen, por ejemplo solo las de películas. Se rehace al encender y cada vez que el reescaneo encuentra cambios, y `medios estado` la menciona.
+- **Página web local** con `medios web`, para usarlo sin terminal: estado, quién está conectado, avance del indexado, «Añadidos recientemente», QR de Jellyfin, buscador y botones para encender, apagar y reescanear. Escucha solo en `127.0.0.1` (`PUERTO_WEB`, 8787 por defecto), no necesita internet ni dependencias y sigue encendida tras `medios off`; se apaga con `medios web off`.
+- `medios estado` dice qué IPs tienen Jellyfin abierto por el reenvío.
 
 ## 0.4.0
 

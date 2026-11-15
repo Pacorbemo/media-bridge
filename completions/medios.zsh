@@ -6,6 +6,7 @@ _medios() {
         "progreso:ver cuántos vídeos lleva indexados el DLNA"
         "reescanear:buscar vídeos nuevos en el DLNA"
         "buscar:buscar una película o serie (sin tener que acertar exacto)"
+        "web:abrir la página para usarlo sin terminal"
         "logs:ver los registros"
         "actualizar:bajar e instalar la última versión"
         "version:ver la versión instalada"
@@ -22,11 +23,15 @@ _medios() {
         "reenvios:los reenvíos de puertos"
         "reescaneo:el vigilante de vídeos nuevos"
         "descubrimiento:la respuesta a las apps de Jellyfin"
+        "web:la página de medios web"
         "-f:seguir en directo"
     )
     local -a opciones_estado=(
         "--jellyfin:enseñar el QR de Jellyfin"
         "-j:enseñar el QR de Jellyfin"
+    )
+    local -a opciones_web=(
+        "off:apagar la página"
     )
     if (( CURRENT == 2 )) || { (( CURRENT == 3 )) && [[ $words[2] == ayuda ]]; }; then
         _describe "acción" acciones
@@ -34,6 +39,8 @@ _medios() {
         _describe "opción" opciones_on
     elif (( CURRENT >= 3 )) && [[ $words[2] == estado ]]; then
         _describe "opción" opciones_estado
+    elif (( CURRENT == 3 )) && [[ $words[2] == web ]]; then
+        _describe "opción" opciones_web
     elif (( CURRENT >= 3 )) && [[ $words[2] == logs ]]; then
         _describe "parte" opciones_logs
     fi

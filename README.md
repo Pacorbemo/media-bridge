@@ -118,18 +118,20 @@ Si usas Claude Code, Codex, Gemini/Antigravity, Cursor u otro asistente, abre el
 | `RECIENTES` | Añadir al DLNA la carpeta «Añadidos recientemente» (`si`/`no`; ver [abajo](#añadidos-recientemente)) | `no` |
 | `RECIENTES_CANTIDAD` | Cuántos vídeos enseña esa carpeta | `10` |
 | `RECIENTES_CARPETAS` | De qué `CARPETAS` salen; vacío para todas | `("Movies")` |
+| `PUERTO_WEB` | Puerto de la página de `medios web`, solo en `127.0.0.1` | `8787` |
 
 ## Uso
 
 | Comando | Qué hace |
 | --- | --- |
 | `medios on` | Monta las carpetas, arranca el DLNA y los reenvíos, y te dice las direcciones. Con `-j` (`--jellyfin`) enseña también un QR con la dirección de Jellyfin para abrirla en el móvil |
-| `medios off` | Lo apaga todo |
-| `medios estado` | Qué está encendido y qué aparatos (televisiones, móviles) han encontrado el DLNA, marcando los conectados ahora. Con `-j` también el QR de Jellyfin |
+| `medios off` | Lo apaga todo menos la página de `medios web` |
+| `medios estado` | Qué está encendido, qué aparatos (televisiones, móviles) han encontrado el DLNA, marcando los conectados ahora, y quién tiene Jellyfin abierto por el reenvío. Con `-j` también el QR de Jellyfin |
 | `medios progreso` | Cuántos vídeos lleva indexados el DLNA, en directo, con ritmo y tiempo restante |
 | `medios reescanear` | Busca vídeos nuevos ya, sin esperar al reescaneo automático |
 | `medios buscar "texto"` | Busca en el servidor sin tener que acertar el nombre exacto |
-| `medios logs [montaje\|dlna\|reenvios\|reescaneo\|descubrimiento] [-f]` | Las últimas líneas de los registros, de todo o de una parte; con `-f`, en directo |
+| `medios web [off]` | Abre en el navegador una página para usarlo sin terminal (ver [abajo](#página-web)); `off` la apaga |
+| `medios logs [montaje\|dlna\|reenvios\|reescaneo\|descubrimiento\|web] [-f]` | Las últimas líneas de los registros, de todo o de una parte; con `-f`, en directo |
 | `medios actualizar` | Baja la última versión del repo y la vuelve a instalar, conservando tu configuración |
 | `medios version` | Qué versión tienes instalada |
 | `medios -h` | Qué hace cada comando; `medios ayuda on` (o `medios on -h`) da el detalle de uno |
@@ -179,6 +181,26 @@ Algunos `.mp4` llevan un título interno y la televisión enseña ese título en
 Las apps de Jellyfin (Android TV, móvil, Fire TV y otras) buscan servidores en la red local con un mensaje de broadcast al puerto 7359/udp. Ese mensaje no cruza Tailscale, así que el servidor de casa nunca lo ve. Si `PUERTO_JELLYFIN` está en `REENVIOS`, el portátil contesta en su nombre: da su propia dirección en la red local (`http://IP-del-portátil:8096`, la del reenvío) con el nombre y el identificador reales del servidor, que lee de `/System/Info/Public` sin contraseña. Así el servidor aparece solo en la app, sin escribir la dirección. Si no puede leer esos datos (servidor apagado, Jellyfin parado), no contesta y lo deja en `medios logs descubrimiento`.
 
 Se enciende con `medios on` y se apaga con `medios off`. Para desactivarlo, `DESCUBRIMIENTO_JELLYFIN=no`. Si usas ufw, el 7359/udp tiene que estar abierto: `./install.sh --firewall` lo incluye y `medios on` avisa si falta.
+
+### Página web
+
+`medios web` abre en el navegador una página para usar media-bridge sin terminal:
+
+- Si está encendido, cada servicio y las direcciones de los reenvíos.
+- Quién está conectado: los aparatos del DLNA, marcando los que lo usan ahora, y las IPs con Jellyfin abierto por el reenvío.
+- El avance del indexado (cuántos de cuántos, ritmo y lo que falta), igual que `medios progreso`.
+- «Añadidos recientemente», si `RECIENTES=si`.
+- El QR de Jellyfin, si `qrencode` está instalado. Si no, solo la dirección: la página no instala nada.
+- Un buscador que hace lo mismo que `medios buscar`.
+- Los botones **Encender** (enseña las comprobaciones de `medios on`, con sus ✘ y avisos), **Apagar** y **Reescanear**. Los dos últimos piden confirmación y avisan si hay alguien conectado, porque cortan lo que se esté viendo.
+
+Se refresca sola cada 5 segundos y funciona sin internet. Escucha solo en `127.0.0.1:PUERTO_WEB` (8787 por defecto): nadie de la red local la ve, ni siquiera la televisión. Para abrirla desde otro equipo de tu tailnet, haz un túnel SSH y abre `http://127.0.0.1:8787` en él:
+
+```
+ssh -L 8787:127.0.0.1:8787 usuario@portátil
+```
+
+`medios off` no la apaga, para que el botón Apagar no se lleve la propia página por delante; se apaga con `medios web off`. Como los demás servicios, no se enciende sola al arrancar el equipo. En Docker no está disponible.
 
 En la televisión, el servidor aparece en la lista de fuentes o en la app de medios con el nombre de `NOMBRE_DLNA`.
 

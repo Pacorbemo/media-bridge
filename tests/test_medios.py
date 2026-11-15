@@ -1,3 +1,4 @@
+import json
 import os
 import subprocess
 import tempfile
@@ -6,7 +7,7 @@ from pathlib import Path
 
 RAIZ = Path(__file__).resolve().parent.parent
 MEDIOS = RAIZ / "bin" / "medios"
-COMANDOS = ["on", "off", "estado", "progreso", "reescanear", "buscar", "logs", "actualizar", "version", "ayuda"]
+COMANDOS = ["on", "off", "estado", "progreso", "reescanear", "buscar", "web", "logs", "actualizar", "version", "ayuda"]
 CONFIG_BUENA = 'SERVIDOR=100.64.0.10\nUSUARIO_SSH=usuario\nRUTA_MEDIOS=/mnt/media\nCARPETAS=("Movies" "Tv Shows")\n'
 
 
@@ -131,7 +132,7 @@ class Configuracion(Medios):
         self.assertIn('RECIENTES_CARPETAS incluye "Documentales", que no está en CARPETAS', out)
 
     def test_puerto_no_valido(self):
-        for linea in ("PUERTO_DLNA=abc", "PUERTO_DLNA=0", "PUERTO_JELLYFIN=70000", 'REENVIOS="8096,8920"'):
+        for linea in ("PUERTO_DLNA=abc", "PUERTO_DLNA=0", "PUERTO_JELLYFIN=70000", "PUERTO_WEB=puerto", 'REENVIOS="8096,8920"'):
             with self.subTest(linea=linea):
                 rc, out = self.medios("estado", config=CONFIG_BUENA + linea + "\n")
                 self.assertEqual(rc, 1)
@@ -172,7 +173,7 @@ class Opciones(Medios):
         rc, out = self.medios("logs", "tostadora", config=CONFIG_BUENA)
         self.assertEqual(rc, 1)
         self.assertIn('No conozco "tostadora"', out)
-        self.assertIn("medios logs [montaje|dlna|reenvios|reescaneo|descubrimiento] [-f]", out)
+        self.assertIn("medios logs [montaje|dlna|reenvios|reescaneo|descubrimiento|web] [-f]", out)
 
     def test_logs_en_docker(self):
         self.conf.write_text(CONFIG_BUENA)
@@ -200,3 +201,116 @@ class Opciones(Medios):
         }
         r = subprocess.run(["bash", str(MEDIOS), "estado"], capture_output=True, text=True, env=env, timeout=20)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+
+
+class Web(Medios):
+    def test_web_en_docker(self):
+        self.conf.write_text(CONFIG_BUENA)
+        env = {
+            "PATH": os.environ["PATH"],
+            "HOME": str(self.dir),
+            "LANG": "C.UTF-8",
+            "MEDIA_BRIDGE_CONFIG": str(self.conf),
+            "MEDIA_BRIDGE_SHARE": str(self.share),
+            "MEDIA_BRIDGE_DOCKER": "1",
+        }
+        r = subprocess.run(["bash", str(MEDIOS), "web"], capture_output=True, text=True, env=env, timeout=20)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("no está disponible en Docker", r.stdout)
+
+    def test_web_con_opcion_desconocida(self):
+        rc, out = self.medios("web", "volar", config=CONFIG_BUENA)
+        self.assertEqual(rc, 1)
+        self.assertIn('No conozco la opción "volar"', out)
+        self.assertIn("medios web [off]", out)
+
+    def test_ayuda_de_web(self):
+        rc, out = self.medios("web", "-h")
+        self.assertEqual(rc, 0)
+        self.assertIn("127.0.0.1", out)
+        self.assertIn("medios web off", out)
+
+
+ESTADO_FALSO = {
+    "ip": """#!/bin/sh
+case "$*" in
+  "route show default") echo "default via 192.168.1.1 dev wlan0 proto dhcp" ;;
+  *"addr show wlan0"*) echo "wlan0            UP             192.168.1.12/24" ;;
+esac
+""",
+    "ss": """#!/bin/sh
+case "$*" in
+  *":8096 )"*)
+    echo "0      0      192.168.1.12:8096      192.168.1.50:51000"
+    echo "0      0      192.168.1.12:8096      192.168.1.50:51001"
+    echo "0      0      [::ffff:192.168.1.12]:8096 [::ffff:192.168.1.7]:40000"
+    echo "0      0      192.168.1.12:8096      192.168.1.12:40100"
+    echo "0      0      127.0.0.1:8096         127.0.0.1:40200"
+    ;;
+esac
+""",
+    "pgrep": """#!/bin/sh
+case "$*" in
+  *"socat TCP-LISTEN:8096,"*) exit 0 ;;
+esac
+exit 1
+""",
+}
+
+
+class EstadoJson(Medios):
+    def setUp(self):
+        super().setUp()
+        self.bin = self.dir / "bin"
+        self.bin.mkdir()
+        for nombre, contenido in ESTADO_FALSO.items():
+            f = self.bin / nombre
+            f.write_text(contenido)
+            f.chmod(0o755)
+        self.db = self.dir / "db"
+        recientes = self.db / "Añadidos recientemente"
+        recientes.mkdir(parents=True)
+        for nombre in ('02 · Otra\\cosa.mp4', '01 · Película "rara" (2024).mkv'):
+            (recientes / nombre).symlink_to("/no/existe")
+        (self.share / "VERSION").write_text("9.8.7\n")
+        self.conf.write_text(
+            CONFIG_BUENA
+            + 'REENVIOS="8096 8920"\nNOMBRE_DLNA="Casa \\"de\\" todos\\\\"\n'
+            + f'DB_DLNA="{self.db}"\nRECIENTES=si\nRECIENTES_CARPETAS=("Movies")\n'
+        )
+
+    def ejecutar(self, *args):
+        env = {
+            "PATH": f"{self.bin}:{os.environ['PATH']}",
+            "HOME": str(self.dir),
+            "LANG": "C.UTF-8",
+            "MEDIA_BRIDGE_CONFIG": str(self.conf),
+            "MEDIA_BRIDGE_SHARE": str(self.share),
+            "MEDIA_BRIDGE_DOCKER": "1",
+        }
+        r = subprocess.run(["bash", str(MEDIOS), *args], capture_output=True, text=True, env=env, timeout=20)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        return r.stdout
+
+    def test_json_valido_y_escapado(self):
+        datos = json.loads(self.ejecutar("_estado-json"))
+        self.assertEqual(datos["version"], "9.8.7")
+        self.assertEqual(datos["ip"], "192.168.1.12")
+        self.assertEqual(datos["dlna"]["nombre"], 'Casa "de" todos\\')
+        self.assertFalse(datos["dlna"]["activo"])
+        self.assertEqual(datos["recientes"]["lista"], ['01 · Película "rara" (2024)', "02 · Otra\\cosa"])
+        self.assertEqual(datos["recientes"]["carpetas"], ["Movies"])
+        self.assertEqual(
+            [(r["puerto"], r["activo"]) for r in datos["reenvios"]],
+            [(8096, True), (8920, False)],
+        )
+        self.assertEqual(datos["reenvios"][0]["url"], "http://192.168.1.12:8096")
+
+    def test_conexiones_a_jellyfin(self):
+        datos = json.loads(self.ejecutar("_estado-json"))
+        self.assertTrue(datos["jellyfin"]["activo"])
+        self.assertEqual(datos["jellyfin"]["conexiones"], ["192.168.1.7", "192.168.1.50"])
+
+    def test_estado_dice_lo_mismo(self):
+        out = self.ejecutar("estado")
+        self.assertIn("Conectados a Jellyfin: 192.168.1.7, 192.168.1.50\n", out)

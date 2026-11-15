@@ -10,11 +10,12 @@ Uso: medios <comando>
 
   on [-j]             monta las carpetas, arranca el DLNA y los reenvíos (-j: QR de Jellyfin)
   off                 lo apaga todo
-  estado [-j]         qué está encendido, en qué direcciones y qué aparatos lo han encontrado
+  estado [-j]         qué está encendido, en qué direcciones y quién está conectado
   progreso            cuántos vídeos lleva indexados el DLNA, en directo
   reescanear          busca vídeos nuevos en el DLNA ahora mismo
   buscar "texto"      busca una película o serie sin acertar el nombre exacto
-  logs [qué] [-f]     los registros: montaje, dlna, reenvios, reescaneo o descubrimiento (-f: en directo)
+  web [off]           una página en el navegador para usarlo sin terminal (off: la apaga)
+  logs [qué] [-f]     los registros: montaje, dlna, reenvios, reescaneo, descubrimiento o web (-f: en directo)
   actualizar          baja la última versión y la instala, sin tocar la configuración
   version             la versión instalada
   ayuda [comando]     esta ayuda, o más detalle de un comando (también -h y --help)
@@ -49,6 +50,7 @@ ayuda_comando() {
     off)
       echo "medios off"
       echo "  Para todos los servicios media-bridge-* y desmonta las carpetas."
+      echo "  La página web (medios web) sigue encendida; se apaga con medios web off."
       echo "  El índice del DLNA se conserva. En Docker se apaga con docker compose down."
       ;;
     estado)
@@ -56,6 +58,7 @@ ayuda_comando() {
       echo "  Lista los servicios, las direcciones de los reenvíos en la red local,"
       echo "  el nombre del DLNA, cada cuánto se busca si hay vídeos nuevos y qué aparatos"
       echo "  (televisiones, móviles) han encontrado el DLNA y cuáles están conectados ahora."
+      echo "  Si el reenvío de Jellyfin está encendido, dice también qué IPs tienen Jellyfin abierto."
       echo "  Con -j o --jellyfin enseña además el QR con la dirección de Jellyfin."
       echo "  Es lo que hace medios sin ningún comando."
       ;;
@@ -83,10 +86,21 @@ ayuda_comando() {
       echo "  anterior hasta medios off y medios on. En Docker se reconstruye la imagen."
       ;;
     logs)
-      echo "medios logs [montaje|dlna|reenvios|reescaneo|descubrimiento] [-f]"
+      echo "medios logs [montaje|dlna|reenvios|reescaneo|descubrimiento|web] [-f]"
       echo "  Enseña las últimas 50 líneas de los registros de media-bridge, de todo o de una parte."
       echo "  Con -f se queda mostrando lo que va pasando (Ctrl+C para salir)."
       echo "  En Docker los registros se ven con docker compose logs -f."
+      ;;
+    web)
+      echo "medios web [off]"
+      echo "  Abre en el navegador una página para usar media-bridge sin terminal: qué está encendido,"
+      echo "  quién está conectado, el avance del indexado, Añadidos recientemente, el QR de Jellyfin,"
+      echo "  el buscador y los botones Encender, Apagar y Reescanear."
+      echo "  Escucha solo en este equipo, en http://127.0.0.1:PUERTO_WEB (8787 por defecto):"
+      echo "  nadie de la red local la ve. Desde otro equipo, con un túnel:"
+      echo "  ssh -L 8787:127.0.0.1:8787 <este equipo>"
+      echo "  Sigue encendida después de medios off; medios web off la apaga."
+      echo "  En Docker no está disponible."
       ;;
     version)
       echo "medios version"
@@ -184,6 +198,7 @@ source "$CONF"
 : "${DESCUBRIMIENTO_JELLYFIN:=si}"
 : "${RECIENTES:=no}"
 : "${RECIENTES_CANTIDAD:=10}"
+: "${PUERTO_WEB:=8787}"
 if [ -z "${CARPETAS+x}" ] || [ "${#CARPETAS[@]}" -eq 0 ] || [ -z "${CARPETAS[0]}" ]; then
   echo "Falta CARPETAS en $CONF"
   exit 1
@@ -198,7 +213,7 @@ for v in DLNA REENVIOS_SOLO_LAN DESCUBRIMIENTO_JELLYFIN RECIENTES; do
     exit 1
   fi
 done
-for p in ${DLNA:+${PUERTO_DLNA:-}} ${PUERTO_JELLYFIN:-} $REENVIOS; do
+for p in ${DLNA:+${PUERTO_DLNA:-}} ${PUERTO_JELLYFIN:-} ${PUERTO_WEB:-} $REENVIOS; do
   if ! [[ "$p" =~ ^[0-9]+$ ]] || [ "$p" -lt 1 ] || [ "$p" -gt 65535 ]; then
     echo "Puerto no válido en $CONF: $p"
     exit 1
@@ -229,7 +244,7 @@ if [ -n "$CLAVE_SSH" ]; then
 fi
 
 uso() {
-  echo "Uso: medios on | off | estado | progreso | reescanear | buscar \"texto\" | actualizar | version | ayuda"
+  echo "Uso: medios on | off | estado | progreso | reescanear | buscar \"texto\" | web | logs | actualizar | version | ayuda"
   echo "Qué hace cada uno: medios -h"
   exit 1
 }
@@ -284,6 +299,18 @@ reproduciendo() {
   ss -Htn state established "( sport = :$PUERTO_DLNA )" | grep -v 127.0.0.1 | grep -q .
 }
 
+indexando() {
+  [ "$(pgrep -c -u "$(id -u)" minidlnad)" -gt 1 ]
+}
+
+conexiones_jellyfin() {
+  ss -Htn state established "( sport = :$PUERTO_JELLYFIN )" \
+    | awk '{print $4}' \
+    | sed -E 's/^\[//; s/\]?:[0-9]+$//; s/^::ffff://' \
+    | grep -vxF -e 127.0.0.1 -e "${1:-127.0.0.1}" \
+    | sort -uV
+}
+
 en_docker() {
   [ "${MEDIA_BRIDGE_DOCKER:-}" = 1 ]
 }
@@ -306,6 +333,13 @@ descubrimiento_activo() {
   else
     systemctl --user -q is-active media-bridge-descubrimiento.service
   fi
+}
+
+texto_jellyfin() {
+  local lista
+  reenvio_activo "$PUERTO_JELLYFIN" || return 0
+  lista=$(conexiones_jellyfin "$1" | paste -sd, - | sed 's/,/, /g')
+  echo "Conectados a Jellyfin: ${lista:-nadie}"
 }
 
 texto_descubrimiento() {
@@ -339,6 +373,26 @@ buscar_en_servidor() {
 
 listar_videos() {
   buscar_en_servidor "" "${CARPETAS[@]}"
+}
+
+total_videos() {
+  local lista total
+  lista=$(listar_videos) || return 1
+  total=$(printf '%s' "$lista" | grep -c '')
+  if [ "$RECIENTES" = si ] && [ -d "$DIR_RECIENTES" ]; then
+    total=$(( total + $(find "$DIR_RECIENTES" -maxdepth 1 -type l | wc -l) ))
+  fi
+  echo "$total"
+}
+
+lista_recientes() {
+  local f
+  [ "$RECIENTES" = si ] && [ -d "$DIR_RECIENTES" ] || return 0
+  for f in "$DIR_RECIENTES"/*; do
+    [ -L "$f" ] || continue
+    f=${f##*/}
+    echo "${f%.*}"
+  done
 }
 
 actualizar_recientes() {
@@ -388,7 +442,7 @@ texto_reescaneo() {
   fi
 }
 
-aparatos_dlna() {
+aparatos_crudos() {
   local propia=$1 n tipo ip_aparato abiertas
   curl -s --max-time 5 "http://127.0.0.1:$PUERTO_DLNA/" \
     | sed 's/<tr>/\n<tr>/g' \
@@ -396,12 +450,19 @@ aparatos_dlna() {
     | while IFS='|' read -r n tipo ip_aparato abiertas; do
         [ "$ip_aparato" = 127.0.0.1 ] && continue
         [ "$ip_aparato" = "$propia" ] && continue
-        if [ "$abiertas" -gt 0 ]; then
-          echo "          $ip_aparato ($tipo), conectado ahora"
-        else
-          echo "          $ip_aparato ($tipo)"
-        fi
+        echo "$ip_aparato|$tipo|$abiertas"
       done
+}
+
+aparatos_dlna() {
+  local ip_aparato tipo abiertas
+  aparatos_crudos "$1" | while IFS='|' read -r ip_aparato tipo abiertas; do
+    if [ "$abiertas" -gt 0 ]; then
+      echo "          $ip_aparato ($tipo), conectado ahora"
+    else
+      echo "          $ip_aparato ($tipo)"
+    fi
+  done
 }
 
 texto_aparatos() {
@@ -424,6 +485,7 @@ estado_docker() {
       echo "Reenvío:  http://$ip:$p"
     fi
   done
+  texto_jellyfin "$ip"
   texto_descubrimiento
   if dlna_activo; then
     echo "DLNA:     $NOMBRE_DLNA"
@@ -449,6 +511,7 @@ estado() {
       echo "Reenvío:  http://$ip:$p"
     fi
   done
+  texto_jellyfin "$ip"
   texto_descubrimiento
   if dlna_activo; then
     echo "DLNA:     $NOMBRE_DLNA"
@@ -456,9 +519,115 @@ estado() {
     texto_reescaneo
     texto_aparatos "$ip"
   fi
-  if ! systemctl --user list-units --state=active --plain --no-legend 'media-bridge-*' | grep -q .; then
+  if ! algo_encendido; then
     echo "Todo apagado. Enciéndelo con: medios on"
   fi
+}
+
+unidades_puente() {
+  systemctl --user list-units --all --plain --no-legend 'media-bridge-*' | awk '$1 != "media-bridge-web.service" {print $1}'
+}
+
+algo_encendido() {
+  en_docker && return 0
+  systemctl --user list-units --state=active --plain --no-legend 'media-bridge-*' | awk '{print $1}' | grep -vqx media-bridge-web.service
+}
+
+json_texto() {
+  local s=$1
+  s=${s//\\/\\\\}
+  s=${s//\"/\\\"}
+  s=${s//$'\t'/\\t}
+  s=${s//$'\r'/\\r}
+  s=${s//$'\n'/\\n}
+  printf '"%s"' "$s"
+}
+
+json_logico() {
+  if "$@"; then printf true; else printf false; fi
+}
+
+json_lista() {
+  local x primero=si
+  printf '['
+  while IFS= read -r x; do
+    [ -n "$x" ] || continue
+    [ "$primero" = si ] || printf ','
+    primero=no
+    printf '%s' "$x"
+  done
+  printf ']'
+}
+
+json_textos() {
+  local x
+  while IFS= read -r x; do
+    [ -n "$x" ] && json_texto "$x" && echo
+  done | json_lista
+}
+
+servicios_json() {
+  local u
+  en_docker && return
+  unidades_puente | while read -r u; do
+    printf '{"nombre":%s,"estado":%s}\n' "$(json_texto "$u")" "$(json_texto "$(systemctl --user is-active "$u")")"
+  done
+}
+
+reenvios_json() {
+  local p
+  for p in $REENVIOS; do
+    printf '{"puerto":%s,"activo":%s,"url":%s}\n' "$p" "$(json_logico reenvio_activo "$p")" "$(json_texto "http://$1:$p")"
+  done
+}
+
+aparatos_json() {
+  local ip_aparato tipo abiertas
+  aparatos_crudos "$1" | while IFS='|' read -r ip_aparato tipo abiertas; do
+    printf '{"ip":%s,"tipo":%s,"conectado":%s}\n' "$(json_texto "$ip_aparato")" "$(json_texto "$tipo")" "$( [ "$abiertas" -gt 0 ] && echo true || echo false)"
+  done
+}
+
+estado_json() {
+  local ip dlna_on=no videos jellyfin_on=no conexiones="[]"
+  ip=$(ip_local)
+  dlna_activo && dlna_on=si
+  reenvio_activo "$PUERTO_JELLYFIN" && jellyfin_on=si
+  [ "$jellyfin_on" = si ] && conexiones=$(conexiones_jellyfin "$ip" | json_textos)
+  printf '{"version":%s' "$(json_texto "$(cat "$SHARE/VERSION" 2>/dev/null || echo desconocida)")"
+  printf ',"docker":%s' "$(json_logico en_docker)"
+  printf ',"encendido":%s' "$(json_logico algo_encendido)"
+  printf ',"ip":%s' "$(json_texto "$ip")"
+  printf ',"servicios":%s' "$(servicios_json | json_lista)"
+  printf ',"reenvios":%s' "$(reenvios_json "$ip" | json_lista)"
+  printf ',"jellyfin":{"puerto":%s,"previsto":%s,"activo":%s,"url":%s,"conexiones":%s,"descubrimiento":%s}' \
+    "$PUERTO_JELLYFIN" \
+    "$( [[ " $REENVIOS " == *" $PUERTO_JELLYFIN "* ]] && echo true || echo false)" \
+    "$( [ "$jellyfin_on" = si ] && echo true || echo false)" \
+    "$(json_texto "http://$ip:$PUERTO_JELLYFIN")" \
+    "$conexiones" \
+    "$(json_logico descubrimiento_activo)"
+  printf ',"dlna":{"previsto":%s,"activo":%s,"nombre":%s,"reescaneo":%s' \
+    "$( [ "$DLNA" = si ] && echo true || echo false)" \
+    "$( [ "$dlna_on" = si ] && echo true || echo false)" \
+    "$(json_texto "$NOMBRE_DLNA")" \
+    "$(json_texto "$(texto_reescaneo)")"
+  if [ "$dlna_on" = si ]; then
+    videos=$(contar)
+    printf ',"viendo":%s,"indexando":%s,"videos":%s,"aparatos":%s}' \
+      "$(json_logico reproduciendo)" \
+      "$(json_logico indexando)" \
+      "${videos:-null}" \
+      "$(aparatos_json "$ip" | json_lista)"
+  else
+    printf ',"viendo":false,"indexando":false,"videos":null,"aparatos":[]}'
+  fi
+  printf ',"recientes":{"activo":%s,"cantidad":%s,"carpetas":%s,"lista":%s}' \
+    "$( [ "$RECIENTES" = si ] && echo true || echo false)" \
+    "$RECIENTES_CANTIDAD" \
+    "$(printf '%s\n' "${RECIENTES_CARPETAS[@]}" | json_textos)" \
+    "$(lista_recientes | json_textos)"
+  printf '}\n'
 }
 
 generar_conf_dlna() {
@@ -736,8 +905,54 @@ case "${1:-estado}" in
     fi
     ;;
   off)
-    systemctl --user stop 'media-bridge-*'
+    mapfile -t unidades < <(unidades_puente)
+    if [ ${#unidades[@]} -gt 0 ]; then
+      systemctl --user stop "${unidades[@]}"
+    fi
     estado
+    ;;
+  web)
+    if en_docker; then
+      echo "La página web no está disponible en Docker. El estado se ve con: docker compose exec media-bridge medios estado"
+      exit 1
+    fi
+    case "${2:-}" in
+      "") ;;
+      off)
+        systemctl --user stop media-bridge-web.service
+        echo "Página web apagada"
+        exit 0
+        ;;
+      *)
+        echo "No conozco la opción \"$2\""
+        echo
+        ayuda_comando web
+        exit 1
+        ;;
+    esac
+    url="http://127.0.0.1:$PUERTO_WEB"
+    if ! systemctl --user -q is-active media-bridge-web.service; then
+      if ss -Hltn "( sport = :$PUERTO_WEB )" | grep -q .; then
+        echo "El puerto $PUERTO_WEB ya lo usa otro programa. Elige otro con PUERTO_WEB en $CONF"
+        exit 1
+      fi
+      systemctl --user start media-bridge-web.service
+    fi
+    for _ in $(seq 20); do
+      curl -s -o /dev/null --max-time 1 "$url/" && break
+      sleep 0.5
+    done
+    if ! curl -s -o /dev/null --max-time 2 "$url/"; then
+      echo "La página web no arranca. Mira qué pasa con: medios logs web"
+      exit 1
+    fi
+    echo "Página web: $url"
+    if [ -n "${WAYLAND_DISPLAY:-}${DISPLAY:-}" ] && command -v xdg-open >/dev/null; then
+      xdg-open "$url" >/dev/null 2>&1 &
+    else
+      echo "Ábrela en el navegador de este equipo, o desde otro con un túnel: ssh -L $PUERTO_WEB:127.0.0.1:$PUERTO_WEB <este equipo>"
+    fi
+    echo "Se apaga con: medios web off"
     ;;
   estado)
     leer_opciones "${1:-estado}" "${@:2}"
@@ -762,6 +977,7 @@ case "${1:-estado}" in
         reenvios|reenvíos) unidades+=(-u 'media-bridge-forward@*') ;;
         reescaneo) unidades+=(-u media-bridge-rescan.service) ;;
         descubrimiento) unidades+=(-u media-bridge-descubrimiento.service) ;;
+        web) unidades+=(-u media-bridge-web.service) ;;
         *)
           echo "No conozco \"$o\""
           echo
@@ -783,10 +999,8 @@ case "${1:-estado}" in
       echo "El DLNA está apagado; enciéndelo con: medios on"
       exit 1
     fi
-    total=$(listar_videos | wc -l)
-    if [ "$RECIENTES" = si ] && [ -d "$DIR_RECIENTES" ]; then
-      total=$(( total + $(find "$DIR_RECIENTES" -maxdepth 1 -type l | wc -l) ))
-    fi
+    total=$(total_videos)
+    total=${total:-0}
     inicio=$(date +%s)
     n0=$(contar)
     n0=${n0:-0}
@@ -804,7 +1018,7 @@ case "${1:-estado}" in
           resto="  ~$(( (total - n + v - 1) / v )) min"
         fi
       fi
-      if [ "$(pgrep -c -u "$(id -u)" minidlnad)" -le 1 ]; then
+      if ! indexando; then
         printf "\r\033[K%s de %s vídeos  terminado\n" "$n" "$total"
         exit 0
       fi
@@ -830,6 +1044,15 @@ case "${1:-estado}" in
   _comprobar)
     comprobar
     exit
+    ;;
+  _estado-json)
+    estado_json
+    ;;
+  _total-videos)
+    total_videos || exit 1
+    ;;
+  _web)
+    exec python3 -u "$SHARE/web.py" --puerto "$PUERTO_WEB" --medios "$(readlink -f "$0")"
     ;;
   _montar)
     mkdir -p "$PUNTO_MONTAJE"

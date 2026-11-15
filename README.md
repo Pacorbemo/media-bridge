@@ -52,6 +52,10 @@ Si usas `ufw`, `./install.sh --firewall` abre los puertos necesarios, **solo par
 
 El servicio `minidlna` del sistema no hace falta: si lo tienes activado, desactívalo para que no choque en el puerto 8200.
 
+### Con un asistente de IA
+
+Si usas Claude Code, Codex, Cursor u otro asistente, abre el repo con él y pídele que lo instale. [`AGENTS.md`](AGENTS.md) le explica qué comprobar, qué preguntarte y qué errores evitar (Claude Code lo carga solo a través de `CLAUDE.md`).
+
 ## Configuración
 
 `~/.config/media-bridge/config`:

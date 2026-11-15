@@ -3,6 +3,8 @@ set -uo pipefail
 
 CONF="${MEDIA_BRIDGE_CONFIG:-$HOME/.config/media-bridge/config}"
 SHARE="${MEDIA_BRIDGE_SHARE:-$HOME/.local/share/media-bridge}"
+COMANDOS=(on off estado progreso reescanear buscar comprobar logs actualizar version ayuda)
+TEMAS=(config problemas)
 
 ayuda() {
   cat <<EOF
@@ -14,6 +16,7 @@ Uso: medios <comando>
   progreso            cuántos vídeos lleva indexados el DLNA, en directo
   reescanear          busca vídeos nuevos en el DLNA ahora mismo
   buscar "texto"      busca una película o serie sin acertar el nombre exacto
+  comprobar           revisa la red, el servidor, las carpetas y los puertos sin encender nada
   logs [qué] [-f]     los registros: montaje, dlna, reenvios, reescaneo o descubrimiento (-f: en directo)
   actualizar          baja la última versión y la instala, sin tocar la configuración
   version             la versión instalada
@@ -21,6 +24,181 @@ Uso: medios <comando>
 
 Configuración: $CONF
 Más detalle de un comando: medios ayuda <comando> o medios <comando> -h
+Qué es cada opción de la configuración y qué valor tiene: medios ayuda config
+Si algo no funciona: medios ayuda problemas
+Todo junto: man medios
+EOF
+}
+
+uso() {
+  echo "Uso: medios on | off | estado | progreso | reescanear | buscar \"texto\" | comprobar | logs | actualizar | version | ayuda"
+  echo "Qué hace cada uno: medios -h"
+  exit 1
+}
+
+sugerir() {
+  local parecida
+  parecida=$(python3 -c '
+import difflib, sys
+m = difflib.get_close_matches(sys.argv[1].lower(), sys.argv[2:], 1, 0.6)
+print(m[0] if m else "")' "$@" 2>/dev/null)
+  if [ -n "$parecida" ]; then
+    printf ' ¿Querías decir "%s"?' "$parecida"
+  fi
+}
+
+no_conozco() {
+  local que=$1 palabra=$2
+  shift 2
+  echo "No conozco $que \"$palabra\".$(sugerir "$palabra" "$@")"
+}
+
+variables_config() {
+  cat <<'EOF'
+SERVIDOR|-|IP de Tailscale del servidor (tailscale ip -4 en él). Obligatoria.
+USUARIO_SSH|-|Usuario con el que se entra al servidor por SSH. Obligatoria.
+RUTA_MEDIOS|-|Carpeta del servidor donde están los vídeos. Obligatoria.
+CARPETAS|-|Subcarpetas de RUTA_MEDIOS que se publican por DLNA y en las que busca medios buscar, por ejemplo ("Movies" "Tv Shows"). Obligatoria. Cambiarlas hace que el DLNA indexe todo de nuevo.
+REENVIOS||Puertos del servidor que se reenvían a la red local, separados por espacios, por ejemplo "8096" para Jellyfin. Vacío para ninguno.
+DLNA|si|Publicar CARPETAS por DLNA para la televisión (si o no).
+NOMBRE_DLNA|media-bridge|Nombre con el que aparece el DLNA en la televisión.
+PUERTO_DLNA|8200|Puerto del DLNA.
+PUERTO_JELLYFIN|8096|Cuál de los REENVIOS es Jellyfin, para el QR de -j y el descubrimiento.
+DESCUBRIMIENTO_JELLYFIN|si|Contestar a las apps de Jellyfin de la red local para que encuentren el servidor solas (si o no). Solo funciona si PUERTO_JELLYFIN está en REENVIOS.
+INTERFAZ||Interfaz de la red local, por ejemplo wlan0. Vacío para usar la de la ruta por defecto.
+PUNTO_MONTAJE|~/media-bridge|Dónde se montan las carpetas del servidor.
+DB_DLNA|~/.cache/media-bridge|Dónde guarda el DLNA su índice, y las fechas de Añadidos recientemente.
+EXTENSIONES|mkv mp4 avi m4v mov wmv mpg mpeg ts webm|Extensiones que cuentan como vídeo.
+REESCANEO_SEGUNDOS|3600|Cada cuántos segundos mira si hay vídeos nuevos o borrados. 0 lo desactiva.
+REENVIOS_SOLO_LAN|no|Con si, los reenvíos escuchan solo en la IP de la red local, no en Tailscale ni en otras interfaces.
+CLAVE_SSH||Clave SSH concreta para entrar al servidor. Vacío usa las de siempre.
+RECIENTES|no|Añadir al DLNA la carpeta "Añadidos recientemente" (si o no). Activarla o quitarla hace que el DLNA indexe todo de nuevo.
+RECIENTES_CANTIDAD|10|Cuántos vídeos enseña Añadidos recientemente.
+RECIENTES_CARPETAS||De qué CARPETAS salen los recientes, por ejemplo ("Movies") para dejar fuera las series. Vacío para todas.
+EOF
+}
+
+valor_config() {
+  local declaracion
+  declaracion=$(declare -p "$1" 2>/dev/null) || return 1
+  if [[ "$declaracion" == "declare -a"* ]]; then
+    local -n lista=$1
+    local e texto=""
+    for e in "${lista[@]}"; do
+      texto+="${texto:+ }\"$e\""
+    done
+    printf '(%s)' "$texto"
+  else
+    printf '%s' "${!1}"
+  fi
+}
+
+ayuda_config() {
+  local modo=${1:-terminal} nombre defecto texto actual marca
+  if [ "$modo" = terminal ]; then
+    echo "medios ayuda config"
+    if [ -f "$CONF" ]; then
+      echo "  Tu configuración está en $CONF y tiene estos valores."
+    else
+      echo "  Todavía no hay configuración en $CONF. Cópiala desde config.example; estos son los valores por defecto."
+    fi
+  fi
+  echo "  Es un fichero de bash: cada línea es NOMBRE=valor, y CARPETAS y RECIENTES_CARPETAS son listas"
+  echo "  entre paréntesis. En Docker van en media-bridge.env, con las listas separadas por comas."
+  echo "  Los cambios se aplican con medios off y medios on."
+  [ "$modo" = terminal ] && echo
+  while IFS='|' read -r nombre defecto texto; do
+    if [ "$modo" = manual ]; then
+      echo "$nombre"
+      case "$defecto" in
+        -) echo "  $texto" ;;
+        "") echo "  $texto Por defecto, vacío." ;;
+        *) echo "  $texto Por defecto: $defecto." ;;
+      esac
+      continue
+    fi
+    defecto=${defecto/#\~/$HOME}
+    marca=""
+    # shellcheck source=/dev/null
+    if [ -f "$CONF" ] && actual=$(set +u; source "$CONF" >/dev/null 2>&1; valor_config "$nombre"); then
+      if [ "$defecto" != - ] && [ "$actual" != "$defecto" ]; then
+        marca="  (por defecto: ${defecto:-vacío})"
+      fi
+    elif [ "$defecto" = - ]; then
+      actual="¡falta!"
+    else
+      actual=$defecto
+      [ -f "$CONF" ] && marca="  (por defecto)"
+    fi
+    [ -z "$actual" ] && actual='""'
+    echo "$nombre = $actual$marca"
+    echo "$texto" | fold -s -w 88 | sed -e 's/ *$//' -e 's/^/  /'
+  done < <(variables_config)
+}
+
+ayuda_problemas() {
+  cat <<'EOF'
+medios ayuda problemas
+  Lo primero, siempre: medios comprobar. Revisa la red, el SSH, las carpetas y los puertos y dice
+  qué falla. Los registros de cada parte se ven con medios logs (medios logs dlna, medios logs montaje...).
+
+La televisión no encuentra el DLNA
+  - Tiene que estar en la misma red que este equipo, y esa red no puede aislar a los aparatos
+    entre sí, como hacen muchas Wi-Fi de invitados y de hoteles.
+  - medios estado dice qué aparatos lo han encontrado. Si la televisión no sale, no le llegan
+    los anuncios del DLNA.
+  - Con ufw activo hacen falta abiertos PUERTO_DLNA (8200) y 1900/udp: ./install.sh --firewall
+  - Si en casa y fuera se usa la misma numeración de red (por ejemplo, las dos 192.168.1.x),
+    la respuesta sale por Tailscale: sudo tailscale set --accept-routes=false
+  - Sal de la fuente y vuelve a entrar, o apaga y enciende la televisión: algunas solo buscan
+    servidores al arrancar.
+
+El DLNA sale vacío o faltan vídeos
+  - Si está indexando, los vídeos van apareciendo poco a poco: medios progreso
+  - Los vídeos nuevos entran en el siguiente reescaneo (cada REESCANEO_SEGUNDOS) o ya mismo con
+    medios reescanear, que corta lo que se esté viendo.
+  - Solo cuentan los ficheros con las extensiones de EXTENSIONES.
+  - medios buscar "texto" dice si el vídeo está en el servidor.
+
+Indexa todo de nuevo al encender
+  - Pasa una vez al cambiar CARPETAS o RECIENTES, y medios on lo avisa. Mientras dura, la
+    televisión puede decir "no compatible" en lo que tenías abierto: vuelve a entrar en el servidor.
+
+Un vídeo no se reproduce o se corta
+  - El DLNA no convierte nada: si la televisión no entiende el formato (algunos AVI, ciertos
+    audios), ese vídeo no se verá. Usa Jellyfin con el reenvío, que sí convierte.
+  - Si se corta, mira si Tailscale va directo: tailscale ping SERVIDOR tiene que decir "via" con
+    una IP, no "via DERP", que es un relé lento.
+  - Una Wi-Fi de 2,4 GHz o con poca señal también corta: mejor 5 GHz o cable.
+  - Los vídeos que están en montajes en la nube (rclone) tardan más en arrancar.
+
+Una película sale con otro nombre
+  - Algunos .mp4 llevan un título interno y el DLNA enseña ese en lugar del nombre del fichero.
+
+La app de Jellyfin no encuentra el servidor o no conecta
+  - PUERTO_JELLYFIN tiene que estar en REENVIOS. medios estado -j da la dirección y un QR.
+  - medios comprobar avisa si el servidor no responde en ese puerto: Jellyfin tiene que estar
+    encendido y escuchar en Tailscale.
+  - Para que la app lo encuentre sola hacen falta DESCUBRIMIENTO_JELLYFIN=si y, con ufw, el
+    7359/udp abierto.
+  - Si Jellyfin baja la calidad porque lo considera remoto, añade 100.64.0.0/10 a sus redes LAN.
+
+No entra al servidor por SSH
+  - tailscale status tiene que mostrar el servidor conectado.
+  - Entra a mano una vez para aceptar su huella: ssh USUARIO_SSH@SERVIDOR. Si dice "Host key
+    verification failed", la huella ha cambiado; bórrala con ssh-keygen -R SERVIDOR y vuelve a entrar.
+  - Los servicios no pueden escribir contraseñas: hace falta una clave SSH sin contraseña
+    (ssh-copy-id USUARIO_SSH@SERVIDOR) o CLAVE_SSH.
+
+Las carpetas no responden ("Transport endpoint is not connected")
+  - El montaje se ha quedado colgado, normalmente al perder la red: medios off y medios on.
+  - Si sigue igual: fusermount3 -uz PUNTO_MONTAJE y medios on otra vez.
+
+El puerto 8200 está ocupado
+  - Suele ser el minidlna del sistema: sudo systemctl disable --now minidlna.service
+
+Después de actualizar todo sigue igual
+  - Lo que estaba encendido sigue con la versión anterior hasta medios off y medios on.
 EOF
 }
 
@@ -31,12 +209,13 @@ ayuda_comando() {
       echo "  Antes de arrancar comprueba la red local, que no salga por Tailscale, el SSH al servidor,"
       echo "  las carpetas y los puertos. Si algo falla (✘) no enciende nada; medios on --forzar se lo salta."
       echo "  También avisa (!) si ufw no abre los puertos o si va a reindexar todo por cambiar CARPETAS."
+      echo "  Las mismas comprobaciones, sin encender nada: medios comprobar."
       echo "  Después monta las carpetas del servidor por sshfs, arranca el DLNA con el reescaneo"
       echo "  automático y reenvía los puertos de REENVIOS. Termina enseñando el estado."
       echo "  Con REENVIOS_SOLO_LAN=si los reenvíos escuchan solo en la IP de la red local, no en"
       echo "  Tailscale ni en otras interfaces, y se mueven solos si esa IP cambia."
       echo "  Con -j o --jellyfin enseña además un código QR con la dirección de Jellyfin,"
-      echo "  para abrirla en el móvil. Se pueden juntar: medios on --forzar -j"
+      echo "  para abrirla en el móvil. Se pueden juntar: medios on --forzar -j."
       echo "  Si PUERTO_JELLYFIN está en REENVIOS, contesta además al descubrimiento de las apps de Jellyfin"
       echo "  (7359/udp), para que encuentren el servidor solas sin escribir la dirección."
       echo "  DESCUBRIMIENTO_JELLYFIN=no lo desactiva."
@@ -76,6 +255,14 @@ ayuda_comando() {
       echo "  No distingue mayúsculas, tildes ni separadores, acepta las palabras"
       echo "  en cualquier orden y tolera erratas."
       ;;
+    comprobar)
+      echo "medios comprobar"
+      echo "  Hace las mismas comprobaciones que medios on, pero sin encender ni apagar nada: que hay"
+      echo "  red local y no sale por Tailscale, que entra al servidor por SSH, que existen las carpetas,"
+      echo "  que los puertos están libres o ya son de media-bridge y que ufw los abre."
+      echo "  Lo marcado con ✘ impediría encender; lo marcado con ! es solo un aviso. Devuelve 1 si hay algún ✘."
+      echo "  Se puede usar con todo encendido. En Docker: docker compose exec media-bridge medios comprobar"
+      ;;
     actualizar)
       echo "medios actualizar"
       echo "  Hace git pull en el clon desde el que se instaló y vuelve a ejecutar install.sh."
@@ -96,14 +283,76 @@ ayuda_comando() {
       echo "medios ayuda [comando]"
       echo "  Sin comando, la lista de comandos. Con uno, su detalle."
       echo "  medios -h, medios --help y medios <comando> -h hacen lo mismo."
+      echo "  medios ayuda config explica cada opción de la configuración con el valor que tiene."
+      echo "  medios ayuda problemas reúne lo que suele fallar y cómo arreglarlo."
+      echo "  man medios lo junta todo en una página de manual."
+      ;;
+    config)
+      ayuda_config
+      ;;
+    problemas)
+      ayuda_problemas
       ;;
     *)
-      echo "No conozco el comando \"$1\""
+      no_conozco "el comando" "$1" "${COMANDOS[@]}" "${TEMAS[@]}"
       echo
       ayuda
       exit 1
       ;;
   esac
+}
+
+a_man() {
+  sed -e 's/\\/\\e/g' -e 's/-/\\-/g' -e "s/^\( *\)\([.']\)/\1\\\\\&\2/" -e '/^$/d' \
+    -e 's/^\([^ ]\)/.SS \1/' -e 's/^ *\\- /.IP \\(bu 2\n/' -e 's/^ *//'
+}
+
+manual() {
+  local version c
+  version=$(cat "$SHARE/VERSION" 2>/dev/null || echo desconocida)
+  cat <<EOF
+.TH MEDIOS 1 "" "media-bridge $version" "Manual de media-bridge"
+.SH NOMBRE
+medios \\- puente para ver en una televisión ajena los vídeos de tu servidor
+.SH SINOPSIS
+.B medios
+.RI [ comando ]
+.RI [ opciones ]
+.SH DESCRIPCIÓN
+Monta por SSH las carpetas de vídeos de un servidor al que se llega por Tailscale,
+las publica por DLNA en la red local y reenvía puertos como el de Jellyfin,
+para verlos en una televisión que no está en tu red.
+Sin comando, hace lo mismo que
+.BR "medios estado" .
+.SH COMANDOS
+EOF
+  for c in "${COMANDOS[@]}"; do
+    ayuda_comando "$c" | a_man
+  done
+  echo ".SH CONFIGURACIÓN"
+  echo "Está en ~/.config/media-bridge/config, o en el fichero de la variable MEDIA_BRIDGE_CONFIG."
+  echo ".PP"
+  ayuda_config manual | a_man
+  echo ".SH PROBLEMAS"
+  ayuda_problemas | tail -n +2 | a_man
+  cat <<EOF
+.SH ARCHIVOS
+.TP
+~/.config/media-bridge/config
+La configuración.
+.TP
+~/.cache/media-bridge
+El índice del DLNA y las fechas de Añadidos recientemente (DB_DLNA).
+.TP
+~/.config/systemd/user/media\\-bridge\\-*
+Los servicios de systemd que encienden medios on y apagan medios off.
+.SH VÉASE TAMBIÉN
+.BR minidlnad (8),
+.BR sshfs (1),
+.BR tailscale (1)
+.PP
+https://github.com/Pacorbemo/media\\-bridge
+EOF
 }
 
 case "${2:-}" in
@@ -120,6 +369,10 @@ case "${1:-}" in
     else
       ayuda
     fi
+    exit 0
+    ;;
+  _manual)
+    manual
     exit 0
     ;;
   version)
@@ -155,6 +408,14 @@ case "${1:-}" in
       echo "Lo que está encendido sigue con la versión anterior hasta que hagas: medios off && medios on"
     fi
     exit 0
+    ;;
+esac
+
+case "${1:-estado}" in
+  on|off|estado|progreso|reescanear|buscar|comprobar|logs|_*) ;;
+  *)
+    no_conozco "el comando" "$1" "${COMANDOS[@]}"
+    uso
     ;;
 esac
 
@@ -227,12 +488,6 @@ OPCIONES_CLAVE=()
 if [ -n "$CLAVE_SSH" ]; then
   OPCIONES_CLAVE=(-o "IdentityFile=$CLAVE_SSH" -o IdentitiesOnly=yes)
 fi
-
-uso() {
-  echo "Uso: medios on | off | estado | progreso | reescanear | buscar \"texto\" | actualizar | version | ayuda"
-  echo "Qué hace cada uno: medios -h"
-  exit 1
-}
 
 interfaz() {
   if [ -n "$INTERFAZ" ]; then
@@ -483,28 +738,20 @@ FORZAR=no
 QR=no
 
 leer_opciones() {
-  local comando=$1 o
+  local comando=$1 o validas=(-j --jellyfin)
   shift
+  [ "$comando" = on ] && validas+=(--forzar)
   for o in "$@"; do
-    case "$o" in
-      -j|--jellyfin) QR=si ;;
-      --forzar)
-        if [ "$comando" = on ]; then
-          FORZAR=si
-        else
-          echo "No conozco la opción \"$o\""
-          echo
-          ayuda_comando "$comando"
-          exit 1
-        fi
-        ;;
-      *)
-        echo "No conozco la opción \"$o\""
-        echo
-        ayuda_comando "$comando"
-        exit 1
-        ;;
-    esac
+    if [ "$o" = -j ] || [ "$o" = --jellyfin ]; then
+      QR=si
+    elif [ "$o" = --forzar ] && [ "$comando" = on ]; then
+      FORZAR=si
+    else
+      no_conozco "la opción" "$o" "${validas[@]}"
+      echo
+      ayuda_comando "$comando"
+      exit 1
+    fi
   done
 }
 
@@ -571,10 +818,6 @@ ERRORES=0
 bien() { echo "  ✔ $*"; }
 mal() { echo "  ✘ $*"; ERRORES=$((ERRORES + 1)); }
 aviso() { echo "  ! $*"; }
-
-unidad_activa() {
-  ! en_docker && systemctl --user -q is-active "$1" 2>/dev/null
-}
 
 carpetas_que_faltan() {
   local lista="" c
@@ -645,7 +888,7 @@ comprobar_puerto() {
 comprobar_puertos() {
   local p libres=""
   for p in $REENVIOS; do
-    unidad_activa "media-bridge-forward@$p.service" && continue
+    reenvio_activo "$p" && continue
     comprobar_puerto "$p" && libres+=" $p"
   done
   if [ "$DLNA" = si ] && ! dlna_activo; then
@@ -690,18 +933,32 @@ comprobar_indice() {
 }
 
 comprobar() {
+  local modo=${1:-on}
   ERRORES=0
-  echo "Comprobando antes de encender:"
+  if [ "$modo" = on ]; then
+    echo "Comprobando antes de encender:"
+  else
+    echo "Comprobando:"
+  fi
   comprobar_red
   comprobar_servidor
   comprobar_puertos
   comprobar_firewall
   comprobar_indice
   if [ "$ERRORES" -gt 0 ]; then
-    echo "No enciendo nada hasta que se corrija lo marcado con ✘ (o fuerza con: medios on --forzar)"
+    if [ "$modo" = on ]; then
+      echo "No enciendo nada hasta que se corrija lo marcado con ✘ (o fuerza con: medios on --forzar)"
+    else
+      echo "Lo marcado con ✘ impediría encender con medios on"
+    fi
+    echo "Pistas para arreglarlo: medios ayuda problemas"
     return 1
   fi
-  echo
+  if [ "$modo" = on ]; then
+    echo
+  else
+    echo "Todo en orden"
+  fi
   return 0
 }
 
@@ -763,7 +1020,7 @@ case "${1:-estado}" in
         reescaneo) unidades+=(-u media-bridge-rescan.service) ;;
         descubrimiento) unidades+=(-u media-bridge-descubrimiento.service) ;;
         *)
-          echo "No conozco \"$o\""
+          no_conozco "la parte" "$o" montaje dlna reenvios reescaneo descubrimiento -f
           echo
           ayuda_comando logs
           exit 1
@@ -826,6 +1083,10 @@ case "${1:-estado}" in
     echo "Reescaneando (antes: ${antes:-?} vídeos)..."
     sleep 20
     echo "Ahora: $(contar) vídeos (si hay muchos nuevos, sigue sumando un rato)"
+    ;;
+  comprobar)
+    comprobar solo
+    exit
     ;;
   _comprobar)
     comprobar

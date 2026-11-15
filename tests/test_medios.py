@@ -1,4 +1,6 @@
 import os
+import re
+import shutil
 import subprocess
 import tempfile
 import unittest
@@ -6,7 +8,7 @@ from pathlib import Path
 
 RAIZ = Path(__file__).resolve().parent.parent
 MEDIOS = RAIZ / "bin" / "medios"
-COMANDOS = ["on", "off", "estado", "progreso", "reescanear", "buscar", "logs", "actualizar", "version", "ayuda"]
+COMANDOS = ["on", "off", "estado", "progreso", "reescanear", "buscar", "comprobar", "logs", "actualizar", "version", "ayuda"]
 CONFIG_BUENA = 'SERVIDOR=100.64.0.10\nUSUARIO_SSH=usuario\nRUTA_MEDIOS=/mnt/media\nCARPETAS=("Movies" "Tv Shows")\n'
 
 
@@ -64,6 +66,136 @@ class Ayuda(Medios):
         self.assertEqual(rc, 1)
         self.assertIn('No conozco el comando "volar"', out)
         self.assertIn("Uso: medios <comando>", out)
+
+    def test_ayuda_menciona_los_temas(self):
+        rc, out = self.medios("-h")
+        self.assertIn("medios ayuda config", out)
+        self.assertIn("medios ayuda problemas", out)
+        self.assertIn("man medios", out)
+
+    def test_ayuda_problemas(self):
+        rc, out = self.medios("ayuda", "problemas")
+        self.assertEqual(rc, 0)
+        self.assertTrue(out.startswith("medios ayuda problemas"), out)
+        self.assertIn("medios comprobar", out)
+        self.assertIn("La televisión no encuentra el DLNA", out)
+
+
+class AyudaConfig(Medios):
+    def variables_del_script(self):
+        texto = MEDIOS.read_text()
+        variables = set(re.findall(r'^: "\$\{([A-Z_]+)(?::=|:\?)', texto, re.M))
+        return variables | {"CARPETAS", "RECIENTES_CARPETAS"}
+
+    def test_explica_todas_las_variables(self):
+        rc, out = self.medios("ayuda", "config")
+        self.assertEqual(rc, 0)
+        nombres = set(re.findall(r"(?m)^([A-Z_]+) = ", out))
+        self.assertEqual(nombres, self.variables_del_script())
+
+    def test_explica_las_variables_de_config_example(self):
+        rc, out = self.medios("ayuda", "config")
+        ejemplo = set(re.findall(r"(?m)^([A-Z_]+)=", (RAIZ / "config.example").read_text()))
+        nombres = set(re.findall(r"(?m)^([A-Z_]+) = ", out))
+        self.assertEqual(nombres, ejemplo)
+
+    def test_sin_configuracion_da_los_valores_por_defecto(self):
+        rc, out = self.medios("ayuda", "config")
+        self.assertEqual(rc, 0)
+        self.assertIn(f"Todavía no hay configuración en {self.conf}", out)
+        self.assertIn("SERVIDOR = ¡falta!", out)
+        self.assertIn("PUERTO_DLNA = 8200\n", out)
+        self.assertIn(f"PUNTO_MONTAJE = {self.dir}/media-bridge\n", out)
+
+    def test_con_configuracion_da_sus_valores(self):
+        config = CONFIG_BUENA + "NOMBRE_DLNA=GMK\nPUERTO_DLNA=8200\n"
+        rc, out = self.medios("ayuda", "config", config=config)
+        self.assertEqual(rc, 0)
+        self.assertIn(f"Tu configuración está en {self.conf}", out)
+        self.assertIn("SERVIDOR = 100.64.0.10\n", out)
+        self.assertIn('CARPETAS = ("Movies" "Tv Shows")\n', out)
+        self.assertIn("NOMBRE_DLNA = GMK  (por defecto: media-bridge)", out)
+        self.assertIn("PUERTO_DLNA = 8200\n", out)
+        self.assertIn("DLNA = si  (por defecto)", out)
+        self.assertIn('INTERFAZ = ""  (por defecto)', out)
+
+    def test_funciona_con_configuracion_no_valida(self):
+        rc, out = self.medios("ayuda", "config", config="REESCANEO_SEGUNDOS=una-hora\n")
+        self.assertEqual(rc, 0)
+        self.assertIn("SERVIDOR = ¡falta!", out)
+        self.assertIn("REESCANEO_SEGUNDOS = una-hora  (por defecto: 3600)", out)
+
+
+class Sugerencias(Medios):
+    def test_comando_con_errata(self):
+        for config in (None, CONFIG_BUENA):
+            with self.subTest(config=config is not None):
+                rc, out = self.medios("estdo", config=config)
+                self.assertEqual(rc, 1)
+                self.assertIn('No conozco el comando "estdo". ¿Querías decir "estado"?', out)
+
+    def test_ayuda_con_errata(self):
+        for errata, buena in (("reescanar", "reescanear"), ("confg", "config"), ("problema", "problemas")):
+            with self.subTest(errata=errata):
+                rc, out = self.medios("ayuda", errata)
+                self.assertEqual(rc, 1)
+                self.assertIn(f'¿Querías decir "{buena}"?', out)
+
+    def test_opcion_con_errata(self):
+        rc, out = self.medios("on", "--forzr", config=CONFIG_BUENA)
+        self.assertEqual(rc, 1)
+        self.assertIn('No conozco la opción "--forzr". ¿Querías decir "--forzar"?', out)
+        self.assertTrue(out.splitlines()[2].startswith("medios on"), out)
+
+    def test_forzar_solo_en_on(self):
+        rc, out = self.medios("estado", "--forzr", config=CONFIG_BUENA)
+        self.assertEqual(rc, 1)
+        self.assertNotIn("¿Querías decir", out)
+
+    def test_parte_de_logs_con_errata(self):
+        rc, out = self.medios("logs", "dlan", config=CONFIG_BUENA)
+        self.assertEqual(rc, 1)
+        self.assertIn('No conozco la parte "dlan". ¿Querías decir "dlna"?', out)
+
+
+class Manual(Medios):
+    def manual(self):
+        (self.share / "VERSION").write_text("9.8.7\n")
+        rc, out = self.medios("_manual")
+        self.assertEqual(rc, 0)
+        return out
+
+    def test_cabecera_y_secciones(self):
+        out = self.manual()
+        self.assertTrue(out.startswith('.TH MEDIOS 1 "" "media-bridge 9.8.7"'), out[:80])
+        for seccion in ("NOMBRE", "SINOPSIS", "DESCRIPCIÓN", "COMANDOS", "CONFIGURACIÓN", "PROBLEMAS", "ARCHIVOS"):
+            self.assertIn(f"\n.SH {seccion}\n", out)
+
+    def test_incluye_cada_comando_y_variable(self):
+        out = self.manual()
+        for c in COMANDOS:
+            self.assertRegex(out, rf"(?m)^\.SS medios {c}\b")
+        for v in ("SERVIDOR", "RECIENTES_CARPETAS"):
+            self.assertIn(f"\n.SS {v}\n", out)
+        self.assertIn("Por defecto: 8200.", out)
+
+    def test_no_depende_de_la_configuracion(self):
+        sin = self.manual()
+        self.conf.write_text(CONFIG_BUENA + "NOMBRE_DLNA=GMK\n")
+        self.assertEqual(self.manual(), sin)
+
+    def test_solo_usa_macros_conocidas(self):
+        for linea in self.manual().splitlines():
+            if linea.startswith((".", "'")):
+                self.assertRegex(linea, r"^\.(TH|SH|SS|B|BR|RI|IP|PP|TP)( |$)")
+
+    @unittest.skipUnless(shutil.which("groff"), "sin groff")
+    def test_groff_sin_avisos(self):
+        fichero = self.dir / "medios.1"
+        fichero.write_text(self.manual())
+        r = subprocess.run(["groff", "-k", "-man", "-Tutf8", "-ww", "-z", str(fichero)], capture_output=True, text=True)
+        self.assertEqual(r.returncode, 0)
+        self.assertEqual(r.stderr, "")
 
 
 class Version(Medios):
@@ -142,8 +274,10 @@ class Configuracion(Medios):
             with self.subTest(args=args):
                 rc, out = self.medios(*args, config=CONFIG_BUENA)
                 self.assertEqual(rc, 1)
-                self.assertTrue(out.startswith("Uso: medios on | off"), out)
+                self.assertTrue(out.startswith(f'No conozco el comando "{args[0]}".'), out)
+                self.assertIn("Uso: medios on | off", out)
                 self.assertIn("medios -h", out)
+                self.assertNotIn("¿Querías decir", out)
 
     def test_buscar_sin_texto(self):
         rc, out = self.medios("buscar", config=CONFIG_BUENA)
@@ -171,7 +305,7 @@ class Opciones(Medios):
     def test_logs_con_parte_desconocida(self):
         rc, out = self.medios("logs", "tostadora", config=CONFIG_BUENA)
         self.assertEqual(rc, 1)
-        self.assertIn('No conozco "tostadora"', out)
+        self.assertIn('No conozco la parte "tostadora".', out)
         self.assertIn("medios logs [montaje|dlna|reenvios|reescaneo|descubrimiento] [-f]", out)
 
     def test_logs_en_docker(self):

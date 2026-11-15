@@ -94,7 +94,7 @@ Si usas Claude Code, Codex, Gemini/Antigravity, Cursor u otro asistente, abre el
 
 ## Configuración
 
-`~/.config/media-bridge/config`:
+`~/.config/media-bridge/config`. `medios ayuda config` explica cada variable con el valor que tiene ahora y el de por defecto.
 
 | Variable | Qué es | Ejemplo |
 | --- | --- | --- |
@@ -129,10 +129,16 @@ Si usas Claude Code, Codex, Gemini/Antigravity, Cursor u otro asistente, abre el
 | `medios progreso` | Cuántos vídeos lleva indexados el DLNA, en directo, con ritmo y tiempo restante |
 | `medios reescanear` | Busca vídeos nuevos ya, sin esperar al reescaneo automático |
 | `medios buscar "texto"` | Busca en el servidor sin tener que acertar el nombre exacto |
+| `medios comprobar` | Hace las [comprobaciones de `medios on`](#comprobaciones-al-encender) sin encender nada |
 | `medios logs [montaje\|dlna\|reenvios\|reescaneo\|descubrimiento] [-f]` | Las últimas líneas de los registros, de todo o de una parte; con `-f`, en directo |
 | `medios actualizar` | Baja la última versión del repo y la vuelve a instalar, conservando tu configuración |
 | `medios version` | Qué versión tienes instalada |
 | `medios -h` | Qué hace cada comando; `medios ayuda on` (o `medios on -h`) da el detalle de uno |
+| `medios ayuda config` | Qué es cada variable de la configuración, con tu valor y el de por defecto |
+| `medios ayuda problemas` | Lo que suele fallar (la televisión no ve el DLNA, se corta, no entra por SSH...) y cómo arreglarlo |
+| `man medios` | Todo lo anterior junto, en una página de manual |
+
+Si te equivocas al escribir un comando o una opción, te sugiere el parecido: `medios estdo` contesta `¿Querías decir "estado"?`.
 
 `medios buscar` no distingue mayúsculas, tildes ni separadores, acepta las palabras en cualquier orden y tolera erratas:
 
@@ -149,6 +155,8 @@ No necesita que el DLNA esté encendido: busca directamente en el servidor por S
 ### Comprobaciones al encender
 
 Antes de arrancar nada, `medios on` comprueba que hay red local, que la red local no sale por Tailscale, que entra al servidor por SSH, que existen las carpetas y que los puertos están libres. Si algo falla lo marca con ✘ y no enciende nada; con `medios on --forzar` se salta las comprobaciones. También avisa, sin pararse, si ufw no tiene abiertos los puertos o si has cambiado `CARPETAS` y el DLNA va a indexar todo de nuevo. En Docker se hacen las mismas comprobaciones al arrancar el contenedor.
+
+`medios comprobar` hace lo mismo sin encender ni apagar nada, también con todo encendido, y devuelve `1` si algo está marcado con ✘. Si algo falla, `medios ayuda problemas` da pistas.
 
 ### Reescaneo automático
 
@@ -276,7 +284,7 @@ Los tests usan solo Python 3 y bash, sin instalar nada:
 python3 -m unittest discover -s tests -v
 ```
 
-Prueban la búsqueda de `lib/buscar.py`, los enlaces de `lib/recientes.py`, la ayuda y los errores de `bin/medios` (sin SSH ni systemd: no encienden nada) y la configuración que genera el entrypoint de Docker. Los del entrypoint se saltan si no existe `/ssh/clave`; en GitHub Actions se crea una falsa para que se ejecuten.
+Prueban la búsqueda de `lib/buscar.py`, los enlaces de `lib/recientes.py`, la ayuda, la página de manual y los errores de `bin/medios` (sin SSH ni systemd: no encienden nada) y la configuración que genera el entrypoint de Docker. Los del entrypoint se saltan si no existe `/ssh/clave`; en GitHub Actions se crea una falsa para que se ejecuten.
 
 GitHub ejecuta los tests y `shellcheck` en cada push y pull request. Para pasar `shellcheck` en local:
 

@@ -7,6 +7,7 @@ BIN="$HOME/.local/bin"
 SHARE="$HOME/.local/share/media-bridge"
 UNITS="$HOME/.config/systemd/user"
 CONF_DIR="$HOME/.config/media-bridge"
+MAN="$HOME/.local/share/man/man1"
 FIREWALL=no
 
 for arg in "$@"; do
@@ -36,6 +37,8 @@ install -Dm644 lib/descubrimiento.py "$SHARE/descubrimiento.py"
 install -Dm644 lib/recientes.py "$SHARE/recientes.py"
 install -Dm644 completions/medios.zsh "$SHARE/medios.zsh"
 install -Dm644 completions/medios.bash "$SHARE/medios.bash"
+mkdir -p "$MAN"
+MEDIA_BRIDGE_SHARE="$SHARE" bash bin/medios _manual > "$MAN/medios.1"
 mkdir -p "$UNITS"
 if [ -f "$UNITS/media-bridge-rescan.timer" ]; then
   systemctl --user stop media-bridge-rescan.timer 2>/dev/null
@@ -92,6 +95,9 @@ case ":$PATH:" in
   *":$BIN:"*) ;;
   *) echo "Aviso: $BIN no está en tu PATH" ;;
 esac
+if command -v man >/dev/null && ! man -w medios >/dev/null 2>&1; then
+  echo "Aviso: man medios no encuentra el manual; ábrelo con: man -l $MAN/medios.1"
+fi
 
 echo
 echo "Instalado."

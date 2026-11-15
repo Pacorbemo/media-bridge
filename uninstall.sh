@@ -20,6 +20,7 @@ rm -f "$HOME/.config/systemd/user/media-bridge-"*
 systemctl --user daemon-reload
 rm -f "$HOME/.local/bin/medios"
 rm -rf "$HOME/.local/share/media-bridge"
+rm -f "$HOME/.local/share/man/man1/medios.1"
 
 for rc in "$HOME/.zshrc" "$HOME/.bashrc"; do
   [ -f "$rc" ] && sed -i '\|/.local/share/media-bridge/medios\.|d' "$rc"

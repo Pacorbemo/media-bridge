@@ -7,6 +7,15 @@ Lo que cambia en cada versión de media-bridge. La versión instalada se ve con 
 ### Añadido
 
 - **Carpeta «Añadidos recientemente» en el DLNA**, opcional (`RECIENTES=si`). Enseña los últimos `RECIENTES_CANTIDAD` vídeos (10 por defecto) que han llegado al servidor, numerados del más nuevo al más antiguo y con el nombre de su carpeta. `RECIENTES_CARPETAS` elige de qué carpetas salen, por ejemplo solo las de películas. Se rehace al encender y cada vez que el reescaneo encuentra cambios, y `medios estado` la menciona.
+- `medios comprobar`: las comprobaciones de `medios on` (red, Tailscale, SSH, carpetas, puertos y ufw) sin encender nada. Devuelve `1` si algo impediría encender.
+- `medios ayuda config`: cada variable de la configuración explicada, con el valor que tiene y el de por defecto.
+- `medios ayuda problemas`: lo que suele fallar y cómo arreglarlo, de la televisión que no ve el DLNA al montaje colgado.
+- Página de manual: `man medios` lo junta todo. `install.sh` la genera a partir de la ayuda.
+- Sugerencias al equivocarse: `medios estdo` contesta `¿Querías decir "estado"?`, y lo mismo con las opciones, las partes de `medios logs` y los temas de `medios ayuda`.
+
+### Corregido
+
+- Un comando desconocido ya no pide la configuración antes de decir que no existe.
 
 ## 0.4.0
 

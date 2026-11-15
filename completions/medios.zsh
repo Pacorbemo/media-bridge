@@ -6,6 +6,7 @@ _medios() {
         "progreso:ver cuántos vídeos lleva indexados el DLNA"
         "reescanear:buscar vídeos nuevos en el DLNA"
         "buscar:buscar una película o serie (sin tener que acertar exacto)"
+        "comprobar:revisar la red, el servidor y los puertos sin encender nada"
         "logs:ver los registros"
         "actualizar:bajar e instalar la última versión"
         "version:ver la versión instalada"
@@ -28,8 +29,14 @@ _medios() {
         "--jellyfin:enseñar el QR de Jellyfin"
         "-j:enseñar el QR de Jellyfin"
     )
-    if (( CURRENT == 2 )) || { (( CURRENT == 3 )) && [[ $words[2] == ayuda ]]; }; then
+    local -a temas=(
+        "config:qué es cada opción de la configuración y qué valor tiene"
+        "problemas:lo que suele fallar y cómo arreglarlo"
+    )
+    if (( CURRENT == 2 )); then
         _describe "acción" acciones
+    elif (( CURRENT == 3 )) && [[ $words[2] == ayuda ]]; then
+        _describe "acción" acciones -- temas
     elif (( CURRENT >= 3 )) && [[ $words[2] == on ]]; then
         _describe "opción" opciones_on
     elif (( CURRENT >= 3 )) && [[ $words[2] == estado ]]; then

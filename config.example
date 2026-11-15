@@ -1,0 +1,12 @@
+SERVIDOR=100.64.0.10
+USUARIO_SSH=usuario
+RUTA_MEDIOS=/mnt/media
+CARPETAS=("Movies" "Tv Shows")
+REENVIOS="8096"
+DLNA=si
+NOMBRE_DLNA=media-bridge
+PUERTO_DLNA=8200
+INTERFAZ=
+PUNTO_MONTAJE="$HOME/media-bridge"
+DB_DLNA="$HOME/.cache/media-bridge"
+EXTENSIONES="mkv mp4 avi m4v mov wmv mpg mpeg ts webm"

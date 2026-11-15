@@ -1,0 +1,218 @@
+#!/usr/bin/env bash
+set -uo pipefail
+
+CONF="${MEDIA_BRIDGE_CONFIG:-$HOME/.config/media-bridge/config}"
+SHARE="${MEDIA_BRIDGE_SHARE:-$HOME/.local/share/media-bridge}"
+
+if [ ! -f "$CONF" ]; then
+  echo "Falta la configuración: $CONF"
+  echo "Cópiala desde config.example y edítala."
+  exit 1
+fi
+source "$CONF"
+
+: "${SERVIDOR:?Falta SERVIDOR en $CONF}"
+: "${USUARIO_SSH:?Falta USUARIO_SSH en $CONF}"
+: "${RUTA_MEDIOS:?Falta RUTA_MEDIOS en $CONF}"
+: "${PUNTO_MONTAJE:=$HOME/media-bridge}"
+: "${DB_DLNA:=$HOME/.cache/media-bridge}"
+: "${DLNA:=si}"
+: "${NOMBRE_DLNA:=media-bridge}"
+: "${PUERTO_DLNA:=8200}"
+: "${REENVIOS:=}"
+: "${INTERFAZ:=}"
+: "${EXTENSIONES:=mkv mp4 avi m4v mov wmv mpg mpeg ts webm}"
+if [ -z "${CARPETAS+x}" ]; then
+  echo "Falta CARPETAS en $CONF"
+  exit 1
+fi
+
+uso() {
+  echo "Uso: medios on | off | estado | progreso | reescanear | buscar \"texto\""
+  exit 1
+}
+
+interfaz() {
+  if [ -n "$INTERFAZ" ]; then
+    echo "$INTERFAZ"
+  else
+    ip route show default | awk '{print $5; exit}'
+  fi
+}
+
+ip_local() {
+  ip -4 -br addr show "$(interfaz)" 2>/dev/null | awk '{print $3}' | cut -d/ -f1
+}
+
+contar() {
+  curl -s --max-time 5 "http://127.0.0.1:$PUERTO_DLNA/" | grep -oE 'Video files</td><td>[0-9]+' | grep -oE '[0-9]+$'
+}
+
+reproduciendo() {
+  ss -Htn state established "( sport = :$PUERTO_DLNA )" | grep -v 127.0.0.1 | grep -q .
+}
+
+dlna_activo() {
+  systemctl --user -q is-active media-bridge-dlna.service
+}
+
+listar_videos() {
+  local carpetas="" filtro="" c e
+  for c in "${CARPETAS[@]}"; do
+    carpetas+=" $(printf '%q' "$c")"
+  done
+  for e in $EXTENSIONES; do
+    filtro+="${filtro:+ -o} -iname '*.$e'"
+  done
+  ssh -o BatchMode=yes -o ConnectTimeout=8 "$USUARIO_SSH@$SERVIDOR" \
+    "cd $(printf '%q' "$RUTA_MEDIOS") && find$carpetas \\( -type f -o -type l \\) \\( $filtro \\)"
+}
+
+estado() {
+  local u
+  for u in $(systemctl --user list-units --all --plain --no-legend 'media-bridge-*' | awk '{print $1}'); do
+    printf "%-34s %s\n" "$u" "$(systemctl --user is-active "$u")"
+  done
+  local ip p
+  ip=$(ip_local)
+  for p in $REENVIOS; do
+    if systemctl --user -q is-active "media-bridge-forward@$p.service"; then
+      echo "Reenvío:  http://$ip:$p"
+    fi
+  done
+  if dlna_activo; then
+    echo "DLNA:     $NOMBRE_DLNA"
+  fi
+  if ! systemctl --user list-units --state=active --plain --no-legend 'media-bridge-*' | grep -q .; then
+    echo "Todo apagado. Enciéndelo con: medios on"
+  fi
+}
+
+generar_conf_dlna() {
+  local conf="$DB_DLNA/minidlna.conf" c
+  mkdir -p "$DB_DLNA"
+  {
+    echo "friendly_name=$NOMBRE_DLNA"
+    for c in "${CARPETAS[@]}"; do
+      echo "media_dir=V,$PUNTO_MONTAJE/$c"
+    done
+    echo "db_dir=$DB_DLNA"
+    echo "log_dir=$DB_DLNA"
+    echo "port=$PUERTO_DLNA"
+    echo "network_interface=$(interfaz)"
+    echo "inotify=no"
+    echo "notify_interval=60"
+    echo "root_container=B"
+    echo "strict_dlna=no"
+  } > "$conf"
+  echo "$conf"
+}
+
+case "${1:-estado}" in
+  on)
+    if [ "$DLNA" = si ]; then
+      systemctl --user start media-bridge-mount.service media-bridge-dlna.service media-bridge-rescan.timer
+    fi
+    for p in $REENVIOS; do
+      systemctl --user start "media-bridge-forward@$p.service"
+    done
+    sleep 3
+    estado
+    ;;
+  off)
+    systemctl --user stop 'media-bridge-*'
+    estado
+    ;;
+  estado)
+    estado
+    ;;
+  buscar)
+    shift
+    [ $# -gt 0 ] || uso
+    listar_videos | python3 "$SHARE/buscar.py" "$@"
+    ;;
+  progreso)
+    if ! dlna_activo; then
+      echo "El DLNA está apagado; enciéndelo con: medios on"
+      exit 1
+    fi
+    total=$(listar_videos | wc -l)
+    inicio=$(date +%s)
+    n0=$(contar)
+    n0=${n0:-0}
+    echo "Ctrl+C para salir"
+    while :; do
+      n=$(contar)
+      n=${n:-0}
+      t=$(( $(date +%s) - inicio ))
+      ritmo=""
+      resto=""
+      if [ "$t" -ge 10 ] && [ "$n" -gt "$n0" ]; then
+        v=$(( (n - n0) * 60 / t ))
+        ritmo="  ${v}/min"
+        if [ "$v" -gt 0 ] && [ "$total" -gt "$n" ]; then
+          resto="  ~$(( (total - n + v - 1) / v )) min"
+        fi
+      fi
+      if [ "$(pgrep -c -u "$(id -u)" minidlnad)" -le 1 ]; then
+        printf "\r\033[K%s de %s vídeos  terminado\n" "$n" "$total"
+        exit 0
+      fi
+      pct=$(( total > 0 ? n * 100 / total : 0 ))
+      printf "\r\033[K%s de %s vídeos (%s%%)%s%s" "$n" "$total" "$pct" "$ritmo" "$resto"
+      sleep 2
+    done
+    ;;
+  reescanear)
+    if ! dlna_activo; then
+      echo "El DLNA está apagado; enciéndelo con: medios on"
+      exit 1
+    fi
+    antes=$(contar)
+    if reproduciendo; then
+      echo "Aviso: se corta lo que se esté viendo"
+    fi
+    systemctl --user restart media-bridge-dlna.service
+    echo "Reescaneando (antes: ${antes:-?} vídeos)..."
+    sleep 20
+    echo "Ahora: $(contar) vídeos (si hay muchos nuevos, sigue sumando un rato)"
+    ;;
+  _montar)
+    mkdir -p "$PUNTO_MONTAJE"
+    fusermount3 -uz "$PUNTO_MONTAJE" 2>/dev/null
+    exec sshfs -f \
+      -o ro,follow_symlinks,reconnect,ServerAliveInterval=15,ServerAliveCountMax=3,BatchMode=yes,kernel_cache,max_conns=4 \
+      "$USUARIO_SSH@$SERVIDOR:$RUTA_MEDIOS" "$PUNTO_MONTAJE"
+    ;;
+  _desmontar)
+    fusermount3 -u "$PUNTO_MONTAJE"
+    ;;
+  _esperar-montaje)
+    for _ in $(seq 30); do
+      if mountpoint -q "$PUNTO_MONTAJE" && ls "$PUNTO_MONTAJE/${CARPETAS[0]}" >/dev/null 2>&1; then
+        exit 0
+      fi
+      sleep 2
+    done
+    echo "El montaje de $PUNTO_MONTAJE no responde"
+    exit 1
+    ;;
+  _dlna)
+    conf=$(generar_conf_dlna)
+    exec minidlnad -S -r -f "$conf" -P "${XDG_RUNTIME_DIR:-/tmp}/media-bridge-dlna.pid"
+    ;;
+  _reenviar)
+    [ -n "${2:-}" ] || exit 1
+    exec socat "TCP-LISTEN:$2,fork,reuseaddr" "TCP:$SERVIDOR:$2"
+    ;;
+  _reescaneo-auto)
+    if reproduciendo; then
+      echo "Hay una reproducción en curso; no reescaneo"
+      exit 0
+    fi
+    systemctl --user restart media-bridge-dlna.service
+    ;;
+  *)
+    uso
+    ;;
+esac

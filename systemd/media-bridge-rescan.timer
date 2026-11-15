@@ -1,0 +1,6 @@
+[Unit]
+Description=media-bridge: reescaneo horario del DLNA
+
+[Timer]
+OnCalendar=hourly
+RandomizedDelaySec=300

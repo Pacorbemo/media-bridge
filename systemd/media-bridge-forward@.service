@@ -1,0 +1,8 @@
+[Unit]
+Description=media-bridge: reenvío del puerto %i al servidor
+
+[Service]
+ExecStart=%h/.local/bin/medios _reenviar %i
+Restart=always
+RestartSec=5
+SuccessExitStatus=143

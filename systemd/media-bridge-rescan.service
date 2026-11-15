@@ -1,0 +1,6 @@
+[Unit]
+Description=media-bridge: reescaneo del DLNA si nadie está viendo nada
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/medios _reescaneo-auto

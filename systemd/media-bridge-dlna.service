@@ -1,0 +1,10 @@
+[Unit]
+Description=media-bridge: servidor DLNA
+Requires=media-bridge-mount.service
+After=media-bridge-mount.service
+
+[Service]
+ExecStartPre=%h/.local/bin/medios _esperar-montaje
+ExecStart=%h/.local/bin/medios _dlna
+Restart=on-failure
+RestartSec=30

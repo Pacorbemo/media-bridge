@@ -1,0 +1,9 @@
+[Unit]
+Description=media-bridge: carpetas del servidor por sshfs (solo lectura)
+After=network-online.target
+
+[Service]
+ExecStart=%h/.local/bin/medios _montar
+ExecStop=%h/.local/bin/medios _desmontar
+Restart=always
+RestartSec=10

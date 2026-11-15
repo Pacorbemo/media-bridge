@@ -33,6 +33,8 @@ fi
   printf 'DB_DLNA=/data/dlna\n'
   printf 'EXTENSIONES=%q\n' "${EXTENSIONES:-mkv mp4 avi m4v mov wmv mpg mpeg ts webm}"
   printf 'REESCANEO_SEGUNDOS=%q\n' "${REESCANEO_SEGUNDOS:-3600}"
+  printf 'REENVIOS_SOLO_LAN=%q\n' "${REENVIOS_SOLO_LAN:-no}"
+  printf 'CLAVE_SSH=\n'
 } > "$MEDIA_BRIDGE_CONFIG"
 
 # shellcheck source=/dev/null

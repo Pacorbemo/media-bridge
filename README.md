@@ -108,6 +108,8 @@ Si usas Claude Code, Codex, Cursor u otro asistente, abre el repo con él y píd
 | `PUNTO_MONTAJE` | Dónde se montan las carpetas | `$HOME/media-bridge` |
 | `DB_DLNA` | Dónde guarda el DLNA su índice | `$HOME/.cache/media-bridge` |
 | `REESCANEO_SEGUNDOS` | Cada cuánto mira si hay vídeos nuevos o borrados; `0` lo desactiva | `3600` |
+| `REENVIOS_SOLO_LAN` | `si` para que los reenvíos escuchen solo en la IP de la red local (ver [Seguridad](#seguridad)) | `no` |
+| `CLAVE_SSH` | Clave SSH concreta para entrar al servidor; vacío usa las de siempre. En Docker se elige al arrancar, con `CLAVE_SSH=/ruta docker compose up -d` | `~/.ssh/media-bridge` |
 | `EXTENSIONES` | Extensiones que cuentan como vídeo | `"mkv mp4 avi"` |
 
 ## Uso
@@ -154,6 +156,67 @@ En la televisión, el servidor aparece en la lista de fuentes o en la app de med
 - **Plex no sirve.** Aunque reenvíes el 32400, la app de Plex pide Plex Pass o Remote Watch Pass, porque plex.tv ve que la televisión y el servidor tienen distinta IP pública. Eso no se arregla desde la red.
 - **Enlaces simbólicos.** Se siguen en el servidor, así que valen carpetas con enlaces a montajes en la nube (rclone y similares). Esos vídeos tardan más en arrancar.
 - **Los servicios web ven la IP de Tailscale del portátil**, no la de la televisión. Si Jellyfin limita la calidad por considerarlo remoto, añade `100.64.0.0/10` a sus redes LAN.
+
+## Seguridad
+
+Lee esto antes de usarlo fuera de casa. Lo que está activado por defecto:
+
+- **El DLNA no tiene contraseña.** El protocolo no tiene usuarios: cualquiera conectado a la red del portátil (la Wi-Fi de un hotel, de un piso compartido o de la oficina) ve y reproduce toda la biblioteca de `CARPETAS`. Publica solo las carpetas que no te importe que vean, y apágalo con `medios off` cuando no lo uses.
+- **Los reenvíos exponen el servicio tal cual.** Quien llegue a `http://IP-del-portátil:8096` entra al Jellyfin de tu servidor, que tiene su propio usuario y contraseña. Un servicio sin login quedaría abierto para toda la red. Por defecto los reenvíos escuchan en todas las interfaces del portátil, no solo en la red local. Nunca añadas la IP del portátil a las redes "sin autenticación" de Jellyfin, Plex u otro servicio: daría acceso de administrador sin contraseña a toda la red del portátil.
+- **La clave SSH del portátil entra en el servidor como `USUARIO_SSH`.** Es una clave sin contraseña (los servicios la usan sin preguntar), así que quien se haga con el portátil o con esa clave puede hacer en el servidor todo lo que puede ese usuario. Si es tu usuario normal, eso es mucho.
+
+Hay dos refuerzos opcionales, desactivados por defecto. Con la configuración de siempre todo funciona igual.
+
+### Reenvíos solo en la red local
+
+Con `REENVIOS_SOLO_LAN=si`, `socat` escucha solo en la IP del portátil en la red local (la de `INTERFAZ`, o la de la ruta por defecto), y no en Tailscale, en `127.0.0.1` ni en otras redes. Cada 10 segundos mira si esa IP ha cambiado (por ejemplo, al cambiar de Wi-Fi) y, si es así, vuelve a escuchar en la nueva. Sin red local, espera a tenerla.
+
+Consecuencia: desde el propio portátil tampoco funciona `http://127.0.0.1:8096`. Usa su IP local, la que enseña `medios estado`.
+
+### Usuario SSH restringido
+
+En vez de tu usuario, el portátil puede entrar al servidor con uno creado solo para esto, que únicamente pueda leer los vídeos. En el **servidor**:
+
+```bash
+sudo useradd --create-home --shell /bin/bash media-bridge
+```
+
+Si los vídeos son legibles por todos (permisos habituales `755`/`644`), no hace falta más. Si no, dale lectura con ACL, también para lo que se añada después (cambia las rutas por las tuyas):
+
+```bash
+sudo setfacl -m u:media-bridge:rx /mnt/media
+sudo setfacl -R -m u:media-bridge:rX /mnt/media/Movies "/mnt/media/Tv Shows"
+sudo setfacl -R -d -m u:media-bridge:rX /mnt/media/Movies "/mnt/media/Tv Shows"
+```
+
+Si las carpetas tienen enlaces a montajes FUSE (rclone y similares), el usuario nuevo no podrá leerlos salvo que el montaje use `--allow-other` (y `/etc/fuse.conf` tenga `user_allow_other`).
+
+En el **portátil**, crea una clave solo para él:
+
+```bash
+ssh-keygen -t ed25519 -f ~/.ssh/media-bridge -N ""
+```
+
+Copia `~/.ssh/media-bridge.pub` al servidor, en `/home/media-bridge/.ssh/authorized_keys` (dueño `media-bridge`, permisos `600`), con estas opciones delante de la clave:
+
+```
+restrict,from="100.64.0.0/10" ssh-ed25519 AAAA... media-bridge
+```
+
+`restrict` quita el reenvío de puertos, el del agente, X11 y la terminal; `from` solo la acepta si llega por Tailscale. Después, en `~/.config/media-bridge/config`:
+
+```bash
+USUARIO_SSH=media-bridge
+CLAVE_SSH=~/.ssh/media-bridge
+```
+
+y `medios on` comprobará que entra y ve las carpetas.
+
+Qué sigue funcionando y qué no:
+
+- **Funciona todo:** el montaje (sshfs usa SFTP), `medios buscar`, `medios progreso`, el reescaneo automático y las comprobaciones de `medios on`. Estos cuatro ejecutan órdenes por SSH (`find`, `true` y `[ -d ]`), y `restrict` las permite.
+- **Lo que no protege:** el usuario puede ejecutar órdenes y leer cualquier fichero del servidor legible por todos. Lo que gana es que ya no es tu usuario: no puede escribir en tus cosas, usar `sudo` ni leer tus ficheros privados.
+- **Solo SFTP no sirve.** Un usuario limitado a SFTP (`ForceCommand internal-sftp` o `ChrootDirectory`) dejaría montar las carpetas, pero rompería `buscar`, `progreso`, el reescaneo automático y las comprobaciones, que necesitan ejecutar `find` y `[ -d ]`.
 
 ## Actualizar
 

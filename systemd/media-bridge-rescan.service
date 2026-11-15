@@ -1,6 +1,8 @@
 [Unit]
-Description=media-bridge: reescaneo del DLNA si nadie está viendo nada
+Description=media-bridge: reescaneo del DLNA cuando hay vídeos nuevos o borrados
+After=media-bridge-dlna.service
 
 [Service]
-Type=oneshot
-ExecStart=%h/.local/bin/medios _reescaneo-auto
+ExecStart=%h/.local/bin/medios _vigilar
+Restart=on-failure
+RestartSec=60

@@ -35,6 +35,10 @@ install -Dm644 lib/buscar.py "$SHARE/buscar.py"
 install -Dm644 completions/medios.zsh "$SHARE/medios.zsh"
 install -Dm644 completions/medios.bash "$SHARE/medios.bash"
 mkdir -p "$UNITS"
+if [ -f "$UNITS/media-bridge-rescan.timer" ]; then
+  systemctl --user stop media-bridge-rescan.timer 2>/dev/null
+  rm -f "$UNITS/media-bridge-rescan.timer"
+fi
 install -m644 systemd/* "$UNITS/"
 systemctl --user daemon-reload
 

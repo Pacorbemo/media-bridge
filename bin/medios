@@ -60,10 +60,16 @@ source "$CONF"
 : "${REENVIOS:=}"
 : "${INTERFAZ:=}"
 : "${EXTENSIONES:=mkv mp4 avi m4v mov wmv mpg mpeg ts webm}"
+: "${REESCANEO_SEGUNDOS:=3600}"
 if [ -z "${CARPETAS+x}" ]; then
   echo "Falta CARPETAS en $CONF"
   exit 1
 fi
+if ! [[ "$REESCANEO_SEGUNDOS" =~ ^[0-9]+$ ]]; then
+  echo "REESCANEO_SEGUNDOS tiene que ser un número de segundos (0 para desactivarlo)"
+  exit 1
+fi
+HUELLA="$DB_DLNA/huella-lista"
 
 uso() {
   echo "Uso: medios on | off | estado | progreso | reescanear | buscar \"texto\" | actualizar | version"
@@ -123,6 +129,20 @@ listar_videos() {
     "cd $(printf '%q' "$RUTA_MEDIOS") && find$carpetas \\( -type f -o -type l \\) \\( $filtro \\)"
 }
 
+huella_lista() {
+  local lista
+  lista=$(listar_videos) || return 1
+  printf '%s\n' "$lista" | LC_ALL=C sort | sha256sum | cut -d' ' -f1
+}
+
+texto_reescaneo() {
+  if [ "$REESCANEO_SEGUNDOS" -gt 0 ]; then
+    echo "Reescaneo: cada $REESCANEO_SEGUNDOS s, solo si hay cambios"
+  else
+    echo "Reescaneo: automático desactivado"
+  fi
+}
+
 estado_docker() {
   local ip p
   ip=$(ip_local)
@@ -134,6 +154,7 @@ estado_docker() {
   done
   if dlna_activo; then
     echo "DLNA:     $NOMBRE_DLNA"
+    texto_reescaneo
   fi
 }
 
@@ -155,6 +176,7 @@ estado() {
   done
   if dlna_activo; then
     echo "DLNA:     $NOMBRE_DLNA"
+    texto_reescaneo
   fi
   if ! systemctl --user list-units --state=active --plain --no-legend 'media-bridge-*' | grep -q .; then
     echo "Todo apagado. Enciéndelo con: medios on"
@@ -190,7 +212,10 @@ case "${1:-estado}" in
     ;;&
   on)
     if [ "$DLNA" = si ]; then
-      systemctl --user start media-bridge-mount.service media-bridge-dlna.service media-bridge-rescan.timer
+      systemctl --user start media-bridge-mount.service media-bridge-dlna.service
+      if [ "$REESCANEO_SEGUNDOS" -gt 0 ]; then
+        systemctl --user start media-bridge-rescan.service
+      fi
     fi
     for p in $REENVIOS; do
       systemctl --user start "media-bridge-forward@$p.service"
@@ -278,18 +303,41 @@ case "${1:-estado}" in
     ;;
   _dlna)
     conf=$(generar_conf_dlna)
+    if ! huella_lista > "$HUELLA.tmp" 2>/dev/null; then
+      rm -f "$HUELLA.tmp"
+    else
+      mv "$HUELLA.tmp" "$HUELLA"
+    fi
     exec minidlnad -S -r -f "$conf" -P "${XDG_RUNTIME_DIR:-/tmp}/media-bridge-dlna.pid"
     ;;
   _reenviar)
     [ -n "${2:-}" ] || exit 1
     exec socat "TCP-LISTEN:$2,fork,reuseaddr" "TCP:$SERVIDOR:$2"
     ;;
-  _reescaneo-auto)
-    if reproduciendo; then
-      echo "Hay una reproducción en curso; no reescaneo"
+  _vigilar)
+    if [ "$REESCANEO_SEGUNDOS" -eq 0 ]; then
+      echo "Reescaneo automático desactivado"
       exit 0
     fi
-    reiniciar_dlna
+    echo "Busco cambios en el servidor cada $REESCANEO_SEGUNDOS s"
+    while sleep "$REESCANEO_SEGUNDOS"; do
+      if ! nueva=$(huella_lista); then
+        echo "No llego al servidor; lo intento en la próxima vuelta"
+        continue
+      fi
+      vieja=$(cat "$HUELLA" 2>/dev/null)
+      if [ -z "$vieja" ]; then
+        echo "$nueva" > "$HUELLA"
+        continue
+      fi
+      [ "$nueva" = "$vieja" ] && continue
+      if reproduciendo; then
+        echo "Hay vídeos nuevos o borrados, pero se está viendo algo; espero a la próxima vuelta"
+        continue
+      fi
+      echo "Hay vídeos nuevos o borrados; reescaneo"
+      reiniciar_dlna
+    done
     ;;
   *)
     uso

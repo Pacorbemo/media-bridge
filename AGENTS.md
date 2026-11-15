@@ -62,6 +62,7 @@ Solo si el usuario lo pide o no quiere instalar paquetes. Explícale antes el av
 - **No reinicies `media-bridge-dlna` mientras alguien está viendo algo.** Mira antes `ss -tn "( sport = :8200 )"`, pero no te fíes del todo: la televisión no mantiene la conexión abierta todo el rato. Pregúntale al usuario.
 - **No cambies `CARPETAS` sin avisar.** Añadir, quitar o reordenar carpetas hace que minidlna borre el índice y lo rehaga entero. Mientras tanto, la televisión da "no compatible" en lo que tenía abierto. Avisa y estima el tiempo.
 - **No borres `DB_DLNA`:** obliga a indexar todo de nuevo.
+- **No pongas un reescaneo a ciegas.** `medios _vigilar` solo reinicia el DLNA si cambia la lista de vídeos (la huella está en `DB_DLNA/huella-lista`); si alguien pide que se reescanee más a menudo, baja `REESCANEO_SEGUNDOS` en vez de añadir timers o cron.
 - **No actives el `minidlna.service` del sistema:** choca en el puerto 8200.
 - **No habilites los servicios para el arranque.** El diseño es manual, con `medios on` y `medios off`.
 - **No intentes que Plex funcione por el puente.** La app de Plex pide Remote Watch Pass porque plex.tv compara la IP pública de la televisión con la del servidor, y eso no se arregla desde la red. Nunca metas la IP del puente en la lista de redes "sin autenticación" de Plex ni de otro servicio: daría acceso de administrador sin contraseña a toda la red del puente.
@@ -80,7 +81,7 @@ Solo si el usuario lo pide o no quiere instalar paquetes. Explícale antes el av
 ## Estructura
 
 - `bin/medios`: el comando. Lee la configuración y también hace de punto de entrada de los servicios, con los subcomandos internos que empiezan por `_`. `version` y `actualizar` se resuelven antes de leer la configuración, así que funcionan aunque no exista.
-- `systemd/`: servicios de usuario `media-bridge-*` (montaje, DLNA, reenvíos y reescaneo horario).
+- `systemd/`: servicios de usuario `media-bridge-*` (montaje, DLNA, reenvíos y el vigilante de cambios `media-bridge-rescan`, que ejecuta `medios _vigilar`).
 - `lib/buscar.py`: la búsqueda aproximada de `medios buscar`.
 - `completions/`: autocompletado para zsh y bash.
 - `install.sh` / `uninstall.sh`.

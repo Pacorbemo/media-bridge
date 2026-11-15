@@ -107,6 +107,7 @@ Si usas Claude Code, Codex, Cursor u otro asistente, abre el repo con él y píd
 | `INTERFAZ` | Interfaz de la red local; vacío para detectarla | `wlan0` |
 | `PUNTO_MONTAJE` | Dónde se montan las carpetas | `$HOME/media-bridge` |
 | `DB_DLNA` | Dónde guarda el DLNA su índice | `$HOME/.cache/media-bridge` |
+| `REESCANEO_SEGUNDOS` | Cada cuánto mira si hay vídeos nuevos o borrados; `0` lo desactiva | `3600` |
 | `EXTENSIONES` | Extensiones que cuentan como vídeo | `"mkv mp4 avi"` |
 
 ## Uso
@@ -117,7 +118,7 @@ Si usas Claude Code, Codex, Cursor u otro asistente, abre el repo con él y píd
 | `medios off` | Lo apaga todo |
 | `medios estado` | Qué está encendido |
 | `medios progreso` | Cuántos vídeos lleva indexados el DLNA, en directo, con ritmo y tiempo restante |
-| `medios reescanear` | Busca vídeos nuevos ya (si no, lo hace solo cada hora cuando nadie está viendo nada) |
+| `medios reescanear` | Busca vídeos nuevos ya, sin esperar al reescaneo automático |
 | `medios buscar "texto"` | Busca en el servidor sin tener que acertar el nombre exacto |
 | `medios actualizar` | Baja la última versión del repo y la vuelve a instalar, conservando tu configuración |
 | `medios version` | Qué versión tienes instalada |
@@ -133,6 +134,10 @@ Parecidos (1):
 ```
 
 No necesita que el DLNA esté encendido: busca directamente en el servidor por SSH.
+
+### Reescaneo automático
+
+Cada `REESCANEO_SEGUNDOS` (una hora por defecto) compara la lista de vídeos del servidor con la que había en el último indexado. Si no ha cambiado nada, no hace nada. Si hay vídeos nuevos o borrados, reinicia el DLNA para que los añada, salvo que alguien esté viendo algo: entonces espera a la siguiente vuelta. Comparar la lista es barato (un `find` por SSH), así que puedes bajar el intervalo a unos minutos sin problema.
 
 En la televisión, el servidor aparece en la lista de fuentes o en la app de medios con el nombre de `NOMBRE_DLNA`.
 

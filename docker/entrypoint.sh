@@ -32,6 +32,7 @@ fi
   printf 'PUNTO_MONTAJE=/media\n'
   printf 'DB_DLNA=/data/dlna\n'
   printf 'EXTENSIONES=%q\n' "${EXTENSIONES:-mkv mp4 avi m4v mov wmv mpg mpeg ts webm}"
+  printf 'REESCANEO_SEGUNDOS=%q\n' "${REESCANEO_SEGUNDOS:-3600}"
 } > "$MEDIA_BRIDGE_CONFIG"
 
 # shellcheck source=/dev/null
@@ -75,9 +76,11 @@ done
 
 if [ "$DLNA" = si ]; then
   iniciar_dlna
-  ( while sleep 3600; do medios _reescaneo-auto; done ) &
-  pids+=("$!")
   echo "DLNA \"$NOMBRE_DLNA\" en el puerto $PUERTO_DLNA"
+  if [ "$REESCANEO_SEGUNDOS" -gt 0 ]; then
+    medios _vigilar &
+    pids+=("$!")
+  fi
 fi
 
 while :; do

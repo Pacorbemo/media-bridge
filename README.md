@@ -224,7 +224,7 @@ Qué sigue funcionando y qué no:
 medios actualizar
 ```
 
-Hace `git pull` en el clon desde el que instalaste y vuelve a ejecutar `./install.sh`. Tu configuración no se toca, y lo que esté encendido no se reinicia: sigue con la versión anterior hasta que hagas `medios off` y `medios on`. Si borraste el clon, te explica cómo volver a clonarlo.
+Hace `git pull` en el clon desde el que instalaste y vuelve a ejecutar `./install.sh`. Tu configuración no se toca, y lo que esté encendido no se reinicia: sigue con la versión anterior hasta que hagas `medios off` y `medios on`. Si borraste el clon, te explica cómo volver a clonarlo. Qué trae cada versión: [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Desinstalar
 
@@ -233,6 +233,24 @@ Hace `git pull` en el clon desde el que instalaste y vuelve a ejecutar `./instal
 ```
 
 Con `--purge` borra también la configuración y el índice del DLNA. Las reglas de `ufw` se quitan a mano (`sudo ufw status numbered`).
+
+## Desarrollo
+
+Los tests usan solo Python 3 y bash, sin instalar nada:
+
+```bash
+python3 -m unittest discover -s tests -v
+```
+
+Prueban la búsqueda de `lib/buscar.py`, la ayuda y los errores de `bin/medios` (sin SSH ni systemd: no encienden nada) y la configuración que genera el entrypoint de Docker. Los del entrypoint se saltan si no existe `/ssh/clave`; en GitHub Actions se crea una falsa para que se ejecuten.
+
+GitHub ejecuta los tests y `shellcheck` en cada push y pull request. Para pasar `shellcheck` en local:
+
+```bash
+shellcheck bin/medios install.sh uninstall.sh docker/entrypoint.sh
+```
+
+Lo que cambia en cada versión está en [`CHANGELOG.md`](CHANGELOG.md).
 
 ## Licencia
 

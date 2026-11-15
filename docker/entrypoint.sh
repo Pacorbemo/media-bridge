@@ -24,6 +24,7 @@ fi
     [ -n "$c" ] && printf '%q ' "$c"
   done
   printf ')\n'
+  REENVIOS="${REENVIOS:-}"
   printf 'REENVIOS=%q\n' "${REENVIOS//,/ }"
   printf 'DLNA=%q\n' "${DLNA:-si}"
   printf 'NOMBRE_DLNA=%q\n' "${NOMBRE_DLNA:-media-bridge}"

@@ -30,6 +30,7 @@ fi
   printf 'NOMBRE_DLNA=%q\n' "${NOMBRE_DLNA:-media-bridge}"
   printf 'PUERTO_DLNA=%q\n' "${PUERTO_DLNA:-8200}"
   printf 'PUERTO_JELLYFIN=%q\n' "${PUERTO_JELLYFIN:-8096}"
+  printf 'DESCUBRIMIENTO_JELLYFIN=%q\n' "${DESCUBRIMIENTO_JELLYFIN:-si}"
   printf 'INTERFAZ=%q\n' "${INTERFAZ:-}"
   printf 'PUNTO_MONTAJE=/media\n'
   printf 'DB_DLNA=/data/dlna\n'
@@ -81,6 +82,12 @@ for p in $REENVIOS; do
   pids+=("$!")
   echo "Reenviando el puerto $p"
 done
+
+if [ "$DESCUBRIMIENTO_JELLYFIN" = si ] && [[ " $REENVIOS " == *" $PUERTO_JELLYFIN "* ]]; then
+  medios _descubrimiento &
+  pids+=("$!")
+  echo "Contestando al descubrimiento de las apps de Jellyfin (7359/udp)"
+fi
 
 if [ "$DLNA" = si ]; then
   iniciar_dlna

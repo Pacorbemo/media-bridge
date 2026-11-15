@@ -8,7 +8,7 @@ from pathlib import Path
 RAIZ = Path(__file__).resolve().parent.parent
 ENTRYPOINT = RAIZ / "docker" / "entrypoint.sh"
 VARIABLES = ["SERVIDOR", "USUARIO_SSH", "RUTA_MEDIOS", "REENVIOS", "DLNA", "NOMBRE_DLNA", "PUERTO_DLNA",
-             "INTERFAZ", "PUNTO_MONTAJE", "DB_DLNA", "EXTENSIONES", "REESCANEO_SEGUNDOS"]
+             "INTERFAZ", "PUNTO_MONTAJE", "DB_DLNA", "EXTENSIONES", "REESCANEO_SEGUNDOS", "DESCUBRIMIENTO_JELLYFIN"]
 
 
 @unittest.skipUnless(os.access("/ssh/clave", os.R_OK), "el entrypoint exige /ssh/clave; el CI la crea")
@@ -60,6 +60,7 @@ class Entrypoint(unittest.TestCase):
         self.assertEqual(valores["PUNTO_MONTAJE"], "/media")
         self.assertEqual(valores["DB_DLNA"], "/data/dlna")
         self.assertEqual(valores["REESCANEO_SEGUNDOS"], "3600")
+        self.assertEqual(valores["DESCUBRIMIENTO_JELLYFIN"], "si")
 
 
 

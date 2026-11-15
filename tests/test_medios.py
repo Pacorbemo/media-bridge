@@ -109,6 +109,13 @@ class Configuracion(Medios):
                 self.assertEqual(rc, 1)
                 self.assertIn("REESCANEO_SEGUNDOS tiene que ser un número de segundos", out)
 
+    def test_si_o_no(self):
+        for var in ("REENVIOS_SOLO_LAN", "DESCUBRIMIENTO_JELLYFIN"):
+            with self.subTest(var=var):
+                rc, out = self.medios("estado", config=CONFIG_BUENA + f"{var}=quizas\n")
+                self.assertEqual(rc, 1)
+                self.assertIn(f"{var} tiene que ser si o no", out)
+
     def test_opcion_desconocida(self):
         for args in (("volar",), ("-x",), ("--lo-que-sea",)):
             with self.subTest(args=args):
@@ -144,7 +151,7 @@ class Opciones(Medios):
         rc, out = self.medios("logs", "tostadora", config=CONFIG_BUENA)
         self.assertEqual(rc, 1)
         self.assertIn('No conozco "tostadora"', out)
-        self.assertIn("medios logs [montaje|dlna|reenvios|reescaneo] [-f]", out)
+        self.assertIn("medios logs [montaje|dlna|reenvios|reescaneo|descubrimiento] [-f]", out)
 
     def test_logs_en_docker(self):
         self.conf.write_text(CONFIG_BUENA)

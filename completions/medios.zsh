@@ -21,6 +21,7 @@ _medios() {
         "dlna:el servidor DLNA"
         "reenvios:los reenvíos de puertos"
         "reescaneo:el vigilante de vídeos nuevos"
+        "descubrimiento:la respuesta a las apps de Jellyfin"
         "-f:seguir en directo"
     )
     local -a opciones_estado=(

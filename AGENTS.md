@@ -58,7 +58,8 @@ Para abrir Jellyfin en el móvil, `medios on -j` o `medios estado -j` enseñan u
 
 - **Cada reenvío:** `curl` a `http://IP-local-del-puente:PUERTO` desde el propio puente.
 - **DLNA:** `medios progreso` hasta que diga "terminado". La primera indexación tarda: en el caso probado, unos 180 vídeos por minuto sobre sshfs.
-- **Descubrimiento:** la página `http://IP-local-del-puente:8200/` lista los clientes que se han conectado. Si aparece la IP de la televisión, ya ha encontrado el servidor.
+- **Descubrimiento de Jellyfin:** si `PUERTO_JELLYFIN` está en `REENVIOS` y `DESCUBRIMIENTO_JELLYFIN` no es `no`, `medios on` arranca `media-bridge-descubrimiento`, que contesta en 7359/udp con la IP local del puente y el `Id` y `ServerName` reales del servidor. Compruébalo con la app de Jellyfin del usuario: el servidor debería aparecer solo al añadir uno. Si no aparece, mira `medios logs descubrimiento`: ahí sale cada pregunta recibida, o que no puede leer `/System/Info/Public`. Si no llega ninguna pregunta, suele ser ufw: descarta los broadcasts a puertos cerrados sin dejar rastro en `journalctl -k`.
+- **Descubrimiento del DLNA:** la página `http://IP-local-del-puente:8200/` lista los clientes que se han conectado. Si aparece la IP de la televisión, ya ha encontrado el servidor.
 - **Si la televisión no conecta:** busca bloqueos con `journalctl -k | grep "UFW BLOCK"`.
 
 ## Seguridad
@@ -98,8 +99,9 @@ Primero `medios estado` (dice qué aparatos han encontrado el DLNA y cuáles est
 ## Estructura
 
 - `bin/medios`: el comando. Lee la configuración y también hace de punto de entrada de los servicios, con los subcomandos internos que empiezan por `_`. `version`, `actualizar` y la ayuda (`-h`, `--help`, `ayuda [comando]` y `<comando> -h`) se resuelven antes de leer la configuración, así que funcionan aunque no exista. Si añades o cambias un comando, actualiza también su texto en `ayuda` y `ayuda_comando`, el autocompletado y la tabla de uso del README.
-- `systemd/`: servicios de usuario `media-bridge-*` (montaje, DLNA, reenvíos y el vigilante de cambios `media-bridge-rescan`, que ejecuta `medios _vigilar`).
+- `systemd/`: servicios de usuario `media-bridge-*` (montaje, DLNA, reenvíos, descubrimiento de Jellyfin y el vigilante de cambios `media-bridge-rescan`, que ejecuta `medios _vigilar`).
 - `lib/buscar.py`: la búsqueda aproximada de `medios buscar`.
+- `lib/descubrimiento.py`: contesta al descubrimiento de las apps de Jellyfin (`who is JellyfinServer?` en 7359/udp) en nombre del servidor, con el mismo JSON que Jellyfin (`Address`, `Id`, `Name`, `EndpointAddress`). Lo arranca `medios _descubrimiento`, desde el servicio `media-bridge-descubrimiento` o desde el entrypoint de Docker. No contesta si no puede leer `/System/Info/Public`.
 - `completions/`: autocompletado para zsh y bash.
 - `install.sh` / `uninstall.sh`.
 - `CLAUDE.md` y `GEMINI.md`: solo importan este fichero para Claude Code y para Gemini/Antigravity. Las instrucciones se cambian aquí, no en ellos.

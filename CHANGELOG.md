@@ -6,6 +6,8 @@ Lo que cambia en cada versión de media-bridge. La versión instalada se ve con 
 
 ### Añadido
 
+- **Descubrimiento de Jellyfin a través del puente.** Las apps de Jellyfin de la red local encuentran el servidor solas, sin escribir la dirección. El portátil contesta en 7359/udp en nombre del servidor, con su IP local y el nombre e identificador reales del servidor. Se enciende con `medios on` si `PUERTO_JELLYFIN` está en `REENVIOS`, y `DESCUBRIMIENTO_JELLYFIN=no` lo desactiva.
+  - Está incluido en las comprobaciones de `medios on` (puerto ocupado), el aviso de ufw, `./install.sh --firewall`, `medios estado`, `medios logs descubrimiento` y Docker.
 - `GEMINI.md`, para que los asistentes de Google (Gemini CLI y Antigravity) carguen solos las instrucciones de `AGENTS.md`, igual que Claude Code con `CLAUDE.md`.
 
 ## 0.3.0

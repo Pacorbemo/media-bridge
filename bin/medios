@@ -52,8 +52,24 @@ reproduciendo() {
   ss -Htn state established "( sport = :$PUERTO_DLNA )" | grep -v 127.0.0.1 | grep -q .
 }
 
+en_docker() {
+  [ "${MEDIA_BRIDGE_DOCKER:-}" = 1 ]
+}
+
 dlna_activo() {
-  systemctl --user -q is-active media-bridge-dlna.service
+  if en_docker; then
+    pgrep -x minidlnad >/dev/null
+  else
+    systemctl --user -q is-active media-bridge-dlna.service
+  fi
+}
+
+reiniciar_dlna() {
+  if en_docker; then
+    kill -USR1 1
+  else
+    systemctl --user restart media-bridge-dlna.service
+  fi
 }
 
 listar_videos() {
@@ -68,7 +84,25 @@ listar_videos() {
     "cd $(printf '%q' "$RUTA_MEDIOS") && find$carpetas \\( -type f -o -type l \\) \\( $filtro \\)"
 }
 
+estado_docker() {
+  local ip p
+  ip=$(ip_local)
+  if mountpoint -q "$PUNTO_MONTAJE"; then echo "Montaje:  activo"; else echo "Montaje:  caído"; fi
+  for p in $REENVIOS; do
+    if pgrep -f "socat TCP-LISTEN:$p," >/dev/null; then
+      echo "Reenvío:  http://$ip:$p"
+    fi
+  done
+  if dlna_activo; then
+    echo "DLNA:     $NOMBRE_DLNA"
+  fi
+}
+
 estado() {
+  if en_docker; then
+    estado_docker
+    return
+  fi
   local u
   for u in $(systemctl --user list-units --all --plain --no-legend 'media-bridge-*' | awk '{print $1}'); do
     printf "%-34s %s\n" "$u" "$(systemctl --user is-active "$u")"
@@ -109,6 +143,12 @@ generar_conf_dlna() {
 }
 
 case "${1:-estado}" in
+  on|off)
+    if en_docker; then
+      echo "En Docker se enciende y se apaga con: docker compose up -d / docker compose down"
+      exit 1
+    fi
+    ;;&
   on)
     if [ "$DLNA" = si ]; then
       systemctl --user start media-bridge-mount.service media-bridge-dlna.service media-bridge-rescan.timer
@@ -172,7 +212,7 @@ case "${1:-estado}" in
     if reproduciendo; then
       echo "Aviso: se corta lo que se esté viendo"
     fi
-    systemctl --user restart media-bridge-dlna.service
+    reiniciar_dlna
     echo "Reescaneando (antes: ${antes:-?} vídeos)..."
     sleep 20
     echo "Ahora: $(contar) vídeos (si hay muchos nuevos, sigue sumando un rato)"
@@ -210,7 +250,7 @@ case "${1:-estado}" in
       echo "Hay una reproducción en curso; no reescaneo"
       exit 0
     fi
-    systemctl --user restart media-bridge-dlna.service
+    reiniciar_dlna
     ;;
   *)
     uso

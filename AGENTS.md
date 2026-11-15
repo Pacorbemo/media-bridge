@@ -37,6 +37,15 @@ Responde en el idioma del usuario. El proyecto, los mensajes del comando y el RE
 4. **Firewall:** usa `./install.sh --firewall` solo si el usuario está de acuerdo. Abre los puertos únicamente a rangos privados. Si ya tiene reglas equivalentes, no las dupliques.
 5. `medios on` y después `medios estado`.
 
+### Con Docker
+
+Solo si el usuario lo pide o no quiere instalar paquetes. Explícale antes el aviso del README: el contenedor necesita red `host`, `/dev/fuse`, `SYS_ADMIN` y su clave SSH, así que aísla poco y es más difícil de depurar.
+
+1. `cp media-bridge.env.example media-bridge.env` y rellénalo. `CARPETAS` va separado por comas.
+2. Si su clave no es `~/.ssh/id_ed25519`, arranca con `CLAVE_SSH=/ruta`.
+3. `docker compose up -d --build` y revisa `docker compose logs`: deben salir "Montado", "Reenviando el puerto" y "DLNA".
+4. Los comandos van con `docker compose exec media-bridge medios ...`. `medios on`/`off` no funcionan dentro: se usa `docker compose up -d`/`down`.
+
 ## Verificación
 
 - **Cada reenvío:** `curl` a `http://IP-local-del-puente:PUERTO` desde el propio puente.
@@ -71,3 +80,4 @@ Responde en el idioma del usuario. El proyecto, los mensajes del comando y el RE
 - `lib/buscar.py`: la búsqueda aproximada de `medios buscar`.
 - `completions/`: autocompletado para zsh y bash.
 - `install.sh` / `uninstall.sh`.
+- `Dockerfile`, `compose.yaml`, `docker/entrypoint.sh` y `media-bridge.env.example`: la variante en Docker. El entrypoint genera la configuración a partir de las variables de entorno y vigila los procesos. `medios` detecta que está dentro por `MEDIA_BRIDGE_DOCKER=1`, y en ese caso `reescanear` reinicia el DLNA enviando `USR1` al proceso 1.

@@ -1,0 +1,20 @@
+services:
+  media-bridge:
+    build: .
+    image: media-bridge
+    container_name: media-bridge
+    network_mode: host
+    devices:
+      - /dev/fuse
+    cap_add:
+      - SYS_ADMIN
+    security_opt:
+      - apparmor:unconfined
+    env_file: media-bridge.env
+    volumes:
+      - ${CLAVE_SSH:-~/.ssh/id_ed25519}:/ssh/clave:ro
+      - datos:/data
+    restart: on-failure
+
+volumes:
+  datos:

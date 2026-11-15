@@ -52,6 +52,39 @@ Si usas `ufw`, `./install.sh --firewall` abre los puertos necesarios, **solo par
 
 El servicio `minidlna` del sistema no hace falta: si lo tienes activado, desactívalo para que no choque en el puerto 8200.
 
+### Con Docker
+
+Si prefieres no instalar paquetes en el equipo, hay una imagen con todo dentro:
+
+```bash
+git clone https://github.com/Pacorbemo/media-bridge.git
+cd media-bridge
+cp media-bridge.env.example media-bridge.env
+```
+
+Edita `media-bridge.env` con los datos de tu servidor. Aquí `CARPETAS` va separado por comas (`Movies,Tv Shows`). Por defecto se usa tu clave `~/.ssh/id_ed25519`; si es otra, arranca con `CLAVE_SSH=/ruta/a/tu/clave`.
+
+| Acción | Comando |
+| --- | --- |
+| Encender | `docker compose up -d --build` |
+| Apagar | `docker compose down` |
+| Estado | `docker compose exec media-bridge medios estado` |
+| Buscar | `docker compose exec media-bridge medios buscar "texto"` |
+| Progreso del indexado | `docker compose exec media-bridge medios progreso` |
+| Reescanear | `docker compose exec media-bridge medios reescanear` |
+| Ver qué está pasando | `docker compose logs -f` |
+
+El índice del DLNA se guarda en un volumen de Docker, así que sobrevive a `docker compose down`.
+
+**Ten en cuenta que Docker aquí añade complejidad y aísla poco.** El contenedor necesita:
+
+- **La red del equipo** (`network_mode: host`): el DLNA se anuncia por multicast en la red local y los puertos tienen que verse desde la televisión.
+- **Permisos para montar** (`/dev/fuse`, `SYS_ADMIN` y sin perfil de AppArmor): sshfs monta las carpetas dentro del contenedor, y eso es casi como ejecutarlo como root.
+- **Tu clave SSH**, montada en solo lectura.
+- **El Tailscale del equipo**: el contenedor no trae el suyo, usa el del equipo a través de su red.
+
+Si algo falla, hay más capas donde mirar (la red de Docker, los permisos de FUSE, la clave dentro del contenedor). Si no tienes un motivo para usar Docker, la instalación normal es más sencilla de depurar.
+
 ### Con un asistente de IA
 
 Si usas Claude Code, Codex, Cursor u otro asistente, abre el repo con él y pídele que lo instale. [`AGENTS.md`](AGENTS.md) le explica qué comprobar, qué preguntarte y qué errores evitar (Claude Code lo carga solo a través de `CLAUDE.md`).

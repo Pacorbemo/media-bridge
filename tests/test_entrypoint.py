@@ -74,6 +74,15 @@ class Validacion(unittest.TestCase):
             self.assertIn("Falta la variable RUTA_MEDIOS en media-bridge.env", r.stdout)
             self.assertFalse(Path(f"{tmp}/conf").exists())
 
+    def test_carpetas_solo_comas(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            env = {"PATH": os.environ["PATH"], "MEDIA_BRIDGE_CONFIG": f"{tmp}/conf",
+                   "SERVIDOR": "s", "USUARIO_SSH": "u", "RUTA_MEDIOS": "/m", "CARPETAS": " , , "}
+            r = subprocess.run(["bash", str(ENTRYPOINT)], capture_output=True, text=True, env=env, timeout=20)
+            self.assertEqual(r.returncode, 1)
+            self.assertIn("Falta la variable CARPETAS en media-bridge.env", r.stdout)
+            self.assertFalse(Path(f"{tmp}/conf").exists())
+
 
 
 if __name__ == "__main__":

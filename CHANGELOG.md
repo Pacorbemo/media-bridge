@@ -9,6 +9,13 @@ Lo que cambia en cada versión de media-bridge. La versión instalada se ve con 
 - **Descubrimiento de Jellyfin a través del puente.** Las apps de Jellyfin de la red local encuentran el servidor solas, sin escribir la dirección. El portátil contesta en 7359/udp en nombre del servidor, con su IP local y el nombre e identificador reales del servidor. Se enciende con `medios on` si `PUERTO_JELLYFIN` está en `REENVIOS`, y `DESCUBRIMIENTO_JELLYFIN=no` lo desactiva.
   - Está incluido en las comprobaciones de `medios on` (puerto ocupado), el aviso de ufw, `./install.sh --firewall`, `medios estado`, `medios logs descubrimiento` y Docker.
 - `GEMINI.md`, para que los asistentes de Google (Gemini CLI y Antigravity) carguen solos las instrucciones de `AGENTS.md`, igual que Claude Code con `CLAUDE.md`.
+- `medios on` avisa si algún puerto de `REENVIOS` no responde en el servidor.
+
+### Corregido
+
+- `medios estado` y `medios on` ya no devuelven código de salida `1` cuando se ejecutan sin `-j`.
+- Se valida que `DLNA` sea `si` o `no`, que `CARPETAS` no esté vacío y que los puertos de la configuración sean números válidos.
+- La comprobación de `ufw` al encender verifica que las reglas sean de paso (`ACCEPT`) y no solo para la interfaz de Tailscale.
 
 ## 0.3.0
 

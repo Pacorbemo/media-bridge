@@ -1,12 +1,23 @@
 #!/usr/bin/env bash
 set -uo pipefail
 
-for v in SERVIDOR USUARIO_SSH RUTA_MEDIOS CARPETAS; do
+carpetas=()
+IFS=',' read -ra lista <<< "${CARPETAS:-}"
+for c in "${lista[@]}"; do
+  c="${c#"${c%%[![:space:]]*}"}"
+  c="${c%"${c##*[![:space:]]}"}"
+  [ -n "$c" ] && carpetas+=("$c")
+done
+for v in SERVIDOR USUARIO_SSH RUTA_MEDIOS; do
   if [ -z "${!v:-}" ]; then
     echo "Falta la variable $v en media-bridge.env"
     exit 1
   fi
 done
+if [ "${#carpetas[@]}" -eq 0 ]; then
+  echo "Falta la variable CARPETAS en media-bridge.env"
+  exit 1
+fi
 if [ ! -r /ssh/clave ]; then
   echo "No encuentro la clave SSH en /ssh/clave: revisa el volumen en compose.yaml"
   exit 1
@@ -17,11 +28,8 @@ fi
   printf 'USUARIO_SSH=%q\n' "$USUARIO_SSH"
   printf 'RUTA_MEDIOS=%q\n' "$RUTA_MEDIOS"
   printf 'CARPETAS=('
-  IFS=',' read -ra lista <<< "$CARPETAS"
-  for c in "${lista[@]}"; do
-    c="${c#"${c%%[![:space:]]*}"}"
-    c="${c%"${c##*[![:space:]]}"}"
-    [ -n "$c" ] && printf '%q ' "$c"
+  for c in "${carpetas[@]}"; do
+    printf '%q ' "$c"
   done
   printf ')\n'
   REENVIOS="${REENVIOS:-}"

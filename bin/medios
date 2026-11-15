@@ -179,7 +179,7 @@ source "$CONF"
 : "${CLAVE_SSH:=}"
 : "${PUERTO_JELLYFIN:=8096}"
 : "${DESCUBRIMIENTO_JELLYFIN:=si}"
-if [ -z "${CARPETAS+x}" ]; then
+if [ -z "${CARPETAS+x}" ] || [ "${#CARPETAS[@]}" -eq 0 ] || [ -z "${CARPETAS[0]}" ]; then
   echo "Falta CARPETAS en $CONF"
   exit 1
 fi
@@ -187,14 +187,18 @@ if ! [[ "$REESCANEO_SEGUNDOS" =~ ^[0-9]+$ ]]; then
   echo "REESCANEO_SEGUNDOS tiene que ser un número de segundos (0 para desactivarlo)"
   exit 1
 fi
-if [ "$REENVIOS_SOLO_LAN" != si ] && [ "$REENVIOS_SOLO_LAN" != no ]; then
-  echo "REENVIOS_SOLO_LAN tiene que ser si o no"
-  exit 1
-fi
-if [ "$DESCUBRIMIENTO_JELLYFIN" != si ] && [ "$DESCUBRIMIENTO_JELLYFIN" != no ]; then
-  echo "DESCUBRIMIENTO_JELLYFIN tiene que ser si o no"
-  exit 1
-fi
+for v in DLNA REENVIOS_SOLO_LAN DESCUBRIMIENTO_JELLYFIN; do
+  if [ "${!v}" != si ] && [ "${!v}" != no ]; then
+    echo "$v tiene que ser si o no"
+    exit 1
+  fi
+done
+for p in ${DLNA:+${PUERTO_DLNA:-}} ${PUERTO_JELLYFIN:-} $REENVIOS; do
+  if ! [[ "$p" =~ ^[0-9]+$ ]] || [ "$p" -lt 1 ] || [ "$p" -gt 65535 ]; then
+    echo "Puerto no válido en $CONF: $p"
+    exit 1
+  fi
+done
 HUELLA="$DB_DLNA/huella-lista"
 OPCIONES_CLAVE=()
 if [ -n "$CLAVE_SSH" ]; then
@@ -538,7 +542,7 @@ comprobar_red() {
 }
 
 comprobar_servidor() {
-  local faltan
+  local faltan p
   if ! ssh_servidor true 2>/dev/null; then
     if command -v tailscale >/dev/null && ! tailscale status >/dev/null 2>&1; then
       mal "Tailscale no está conectado en este equipo"
@@ -554,6 +558,11 @@ comprobar_servidor() {
   else
     bien "Carpetas en el servidor: ${#CARPETAS[@]}"
   fi
+  for p in $REENVIOS; do
+    if ! socat /dev/null "TCP:$SERVIDOR:$p,connect-timeout=3" 2>/dev/null; then
+      aviso "El servidor no responde en el puerto $p ($SERVIDOR:$p): revisa que el servicio esté encendido y escuche en Tailscale"
+    fi
+  done
 }
 
 comprobar_puerto() {
@@ -597,7 +606,7 @@ comprobar_firewall() {
   [ "$DLNA" = si ] && puertos+=" $PUERTO_DLNA 1900"
   descubrimiento_previsto && puertos+=" 7359"
   for p in $puertos; do
-    grep -qE -- "--dport $p( |$)" /etc/ufw/user.rules || cerrados+="${cerrados:+, }$p"
+    grep -v -- '-i tailscale0' /etc/ufw/user.rules | grep -qE -- "--dport $p( |$).*-j ACCEPT" || cerrados+="${cerrados:+, }$p"
   done
   if [ -n "$cerrados" ]; then
     aviso "ufw está activo y no abre: $cerrados. La televisión no llegará; ábrelos con ./install.sh --firewall"
@@ -658,7 +667,9 @@ case "${1:-estado}" in
     fi
     sleep 3
     estado
-    [ "$QR" = si ] && mostrar_qr
+    if [ "$QR" = si ]; then
+      mostrar_qr
+    fi
     ;;
   off)
     systemctl --user stop 'media-bridge-*'
@@ -667,7 +678,9 @@ case "${1:-estado}" in
   estado)
     leer_opciones "${1:-estado}" "${@:2}"
     estado
-    [ "$QR" = si ] && mostrar_qr
+    if [ "$QR" = si ]; then
+      mostrar_qr
+    fi
     ;;
   logs)
     if en_docker; then

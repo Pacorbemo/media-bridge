@@ -97,10 +97,12 @@ class Configuracion(Medios):
                 self.assertIn(f"Falta {var} en {self.conf}", out)
 
     def test_falta_carpetas(self):
-        config = "\n".join(l for l in CONFIG_BUENA.splitlines() if not l.startswith("CARPETAS="))
-        rc, out = self.medios("estado", config=config)
-        self.assertEqual(rc, 1)
-        self.assertIn(f"Falta CARPETAS en {self.conf}", out)
+        sin_carpetas = "\n".join(l for l in CONFIG_BUENA.splitlines() if not l.startswith("CARPETAS="))
+        for extra in ("", "CARPETAS=()\n", 'CARPETAS=("")\n'):
+            with self.subTest(extra=extra):
+                rc, out = self.medios("estado", config=sin_carpetas + "\n" + extra)
+                self.assertEqual(rc, 1)
+                self.assertIn(f"Falta CARPETAS en {self.conf}", out)
 
     def test_reescaneo_no_numerico(self):
         for valor in ("una-hora", "-5", "1.5"):
@@ -110,11 +112,18 @@ class Configuracion(Medios):
                 self.assertIn("REESCANEO_SEGUNDOS tiene que ser un número de segundos", out)
 
     def test_si_o_no(self):
-        for var in ("REENVIOS_SOLO_LAN", "DESCUBRIMIENTO_JELLYFIN"):
+        for var in ("DLNA", "REENVIOS_SOLO_LAN", "DESCUBRIMIENTO_JELLYFIN"):
             with self.subTest(var=var):
                 rc, out = self.medios("estado", config=CONFIG_BUENA + f"{var}=quizas\n")
                 self.assertEqual(rc, 1)
                 self.assertIn(f"{var} tiene que ser si o no", out)
+
+    def test_puerto_no_valido(self):
+        for linea in ("PUERTO_DLNA=abc", "PUERTO_DLNA=0", "PUERTO_JELLYFIN=70000", 'REENVIOS="8096,8920"'):
+            with self.subTest(linea=linea):
+                rc, out = self.medios("estado", config=CONFIG_BUENA + linea + "\n")
+                self.assertEqual(rc, 1)
+                self.assertIn(f"Puerto no válido en {self.conf}:", out)
 
     def test_opcion_desconocida(self):
         for args in (("volar",), ("-x",), ("--lo-que-sea",)):
@@ -166,3 +175,16 @@ class Opciones(Medios):
         r = subprocess.run(["bash", str(MEDIOS), "logs"], capture_output=True, text=True, env=env, timeout=20)
         self.assertEqual(r.returncode, 1)
         self.assertIn("docker compose logs -f", r.stdout)
+
+    def test_estado_sin_j_devuelve_cero(self):
+        self.conf.write_text(CONFIG_BUENA + "DLNA=no\n")
+        env = {
+            "PATH": os.environ["PATH"],
+            "HOME": str(self.dir),
+            "LANG": "C.UTF-8",
+            "MEDIA_BRIDGE_CONFIG": str(self.conf),
+            "MEDIA_BRIDGE_SHARE": str(self.share),
+            "MEDIA_BRIDGE_DOCKER": "1",
+        }
+        r = subprocess.run(["bash", str(MEDIOS), "estado"], capture_output=True, text=True, env=env, timeout=20)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)

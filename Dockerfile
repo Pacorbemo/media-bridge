@@ -6,6 +6,7 @@ RUN printf 'Host *\n    StrictHostKeyChecking accept-new\n    UserKnownHostsFile
 
 COPY bin/medios /usr/local/bin/medios
 COPY lib/buscar.py /usr/local/share/media-bridge/buscar.py
+COPY lib/descubrimiento.py /usr/local/share/media-bridge/descubrimiento.py
 COPY VERSION /usr/local/share/media-bridge/VERSION
 COPY docker/entrypoint.sh /usr/local/bin/media-bridge-entrypoint
 

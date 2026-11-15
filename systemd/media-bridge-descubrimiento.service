@@ -1,0 +1,7 @@
+[Unit]
+Description=media-bridge: respuesta al descubrimiento de las apps de Jellyfin
+
+[Service]
+ExecStart=%h/.local/bin/medios _descubrimiento
+Restart=on-failure
+RestartSec=10

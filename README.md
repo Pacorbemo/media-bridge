@@ -112,7 +112,8 @@ Si usas Claude Code, Codex, Cursor u otro asistente, abre el repo con él y píd
 | `REESCANEO_SEGUNDOS` | Cada cuánto mira si hay vídeos nuevos o borrados; `0` lo desactiva | `3600` |
 | `REENVIOS_SOLO_LAN` | `si` para que los reenvíos escuchen solo en la IP de la red local (ver [Seguridad](#seguridad)) | `no` |
 | `CLAVE_SSH` | Clave SSH concreta para entrar al servidor; vacío usa las de siempre. En Docker se elige al arrancar, con `CLAVE_SSH=/ruta docker compose up -d` | `~/.ssh/media-bridge` |
-| `PUERTO_JELLYFIN` | Cuál de los `REENVIOS` es Jellyfin, para el QR de `-j` | `8096` |
+| `PUERTO_JELLYFIN` | Cuál de los `REENVIOS` es Jellyfin, para el QR de `-j` y el descubrimiento | `8096` |
+| `DESCUBRIMIENTO_JELLYFIN` | Contestar a las apps de Jellyfin para que encuentren el servidor solas (`si`/`no`); solo funciona si `PUERTO_JELLYFIN` está en `REENVIOS` | `si` |
 | `EXTENSIONES` | Extensiones que cuentan como vídeo | `"mkv mp4 avi"` |
 
 ## Uso
@@ -125,7 +126,7 @@ Si usas Claude Code, Codex, Cursor u otro asistente, abre el repo con él y píd
 | `medios progreso` | Cuántos vídeos lleva indexados el DLNA, en directo, con ritmo y tiempo restante |
 | `medios reescanear` | Busca vídeos nuevos ya, sin esperar al reescaneo automático |
 | `medios buscar "texto"` | Busca en el servidor sin tener que acertar el nombre exacto |
-| `medios logs [montaje\|dlna\|reenvios\|reescaneo] [-f]` | Las últimas líneas de los registros, de todo o de una parte; con `-f`, en directo |
+| `medios logs [montaje\|dlna\|reenvios\|reescaneo\|descubrimiento] [-f]` | Las últimas líneas de los registros, de todo o de una parte; con `-f`, en directo |
 | `medios actualizar` | Baja la última versión del repo y la vuelve a instalar, conservando tu configuración |
 | `medios version` | Qué versión tienes instalada |
 | `medios -h` | Qué hace cada comando; `medios ayuda on` (o `medios on -h`) da el detalle de uno |
@@ -150,6 +151,12 @@ Antes de arrancar nada, `medios on` comprueba que hay red local, que la red loca
 
 Cada `REESCANEO_SEGUNDOS` (una hora por defecto) compara la lista de vídeos del servidor con la que había en el último indexado. Si no ha cambiado nada, no hace nada. Si hay vídeos nuevos o borrados, reinicia el DLNA para que los añada, salvo que alguien esté viendo algo: entonces espera a la siguiente vuelta. Comparar la lista es barato (un `find` por SSH), así que puedes bajar el intervalo a unos minutos sin problema.
 
+### Descubrimiento de Jellyfin
+
+Las apps de Jellyfin (Android TV, móvil, Fire TV y otras) buscan servidores en la red local con un mensaje de broadcast al puerto 7359/udp. Ese mensaje no cruza Tailscale, así que el servidor de casa nunca lo ve. Si `PUERTO_JELLYFIN` está en `REENVIOS`, el portátil contesta en su nombre: da su propia dirección en la red local (`http://IP-del-portátil:8096`, la del reenvío) con el nombre y el identificador reales del servidor, que lee de `/System/Info/Public` sin contraseña. Así el servidor aparece solo en la app, sin escribir la dirección. Si no puede leer esos datos (servidor apagado, Jellyfin parado), no contesta y lo deja en `medios logs descubrimiento`.
+
+Se enciende con `medios on` y se apaga con `medios off`. Para desactivarlo, `DESCUBRIMIENTO_JELLYFIN=no`. Si usas ufw, el 7359/udp tiene que estar abierto: `./install.sh --firewall` lo incluye y `medios on` avisa si falta.
+
 En la televisión, el servidor aparece en la lista de fuentes o en la app de medios con el nombre de `NOMBRE_DLNA`.
 
 ## Cosas a tener en cuenta
@@ -166,7 +173,7 @@ En la televisión, el servidor aparece en la lista de fuentes o en la app de med
 Lee esto antes de usarlo fuera de casa. Lo que está activado por defecto:
 
 - **El DLNA no tiene contraseña.** El protocolo no tiene usuarios: cualquiera conectado a la red del portátil (la Wi-Fi de un hotel, de un piso compartido o de la oficina) ve y reproduce toda la biblioteca de `CARPETAS`. Publica solo las carpetas que no te importe que vean, y apágalo con `medios off` cuando no lo uses.
-- **Los reenvíos exponen el servicio tal cual.** Quien llegue a `http://IP-del-portátil:8096` entra al Jellyfin de tu servidor, que tiene su propio usuario y contraseña. Un servicio sin login quedaría abierto para toda la red. Por defecto los reenvíos escuchan en todas las interfaces del portátil, no solo en la red local. Nunca añadas la IP del portátil a las redes "sin autenticación" de Jellyfin, Plex u otro servicio: daría acceso de administrador sin contraseña a toda la red del portátil.
+- **Los reenvíos exponen el servicio tal cual.** Quien llegue a `http://IP-del-portátil:8096` entra al Jellyfin de tu servidor, que tiene su propio usuario y contraseña. Un servicio sin login quedaría abierto para toda la red. Por defecto los reenvíos escuchan en todas las interfaces del portátil, no solo en la red local. El descubrimiento de Jellyfin, si está activo, anuncia a toda la red el nombre del servidor y la dirección del reenvío. Nunca añadas la IP del portátil a las redes "sin autenticación" de Jellyfin, Plex u otro servicio: daría acceso de administrador sin contraseña a toda la red del portátil.
 - **La clave SSH del portátil entra en el servidor como `USUARIO_SSH`.** Es una clave sin contraseña (los servicios la usan sin preguntar), así que quien se haga con el portátil o con esa clave puede hacer en el servidor todo lo que puede ese usuario. Si es tu usuario normal, eso es mucho.
 
 Hay dos refuerzos opcionales, desactivados por defecto. Con la configuración de siempre todo funciona igual.

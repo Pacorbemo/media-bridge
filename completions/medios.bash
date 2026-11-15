@@ -7,7 +7,7 @@ _medios() {
     elif [ "$COMP_CWORD" -ge 2 ] && [ "${COMP_WORDS[1]}" = on ]; then
         COMPREPLY=($(compgen -W "--jellyfin -j --forzar" -- "${COMP_WORDS[COMP_CWORD]}"))
     elif [ "$COMP_CWORD" -ge 2 ] && [ "${COMP_WORDS[1]}" = logs ]; then
-        COMPREPLY=($(compgen -W "montaje dlna reenvios reescaneo -f" -- "${COMP_WORDS[COMP_CWORD]}"))
+        COMPREPLY=($(compgen -W "montaje dlna reenvios reescaneo descubrimiento -f" -- "${COMP_WORDS[COMP_CWORD]}"))
     elif [ "$COMP_CWORD" -ge 2 ] && [ "${COMP_WORDS[1]}" = estado ]; then
         COMPREPLY=($(compgen -W "--jellyfin -j" -- "${COMP_WORDS[COMP_CWORD]}"))
     fi

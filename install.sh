@@ -32,6 +32,7 @@ install -Dm755 bin/medios "$BIN/medios"
 install -Dm644 VERSION "$SHARE/VERSION"
 pwd -P > "$SHARE/clon"
 install -Dm644 lib/buscar.py "$SHARE/buscar.py"
+install -Dm644 lib/descubrimiento.py "$SHARE/descubrimiento.py"
 install -Dm644 completions/medios.zsh "$SHARE/medios.zsh"
 install -Dm644 completions/medios.bash "$SHARE/medios.bash"
 mkdir -p "$UNITS"
@@ -69,6 +70,9 @@ source "$CONF_DIR/config"
 puertos=()
 for p in ${REENVIOS:-}; do puertos+=("$p/tcp"); done
 if [ "${DLNA:-si}" = si ]; then puertos+=("${PUERTO_DLNA:-8200}/tcp" "1900/udp"); fi
+if [ "${DESCUBRIMIENTO_JELLYFIN:-si}" = si ] && [[ " ${REENVIOS:-} " == *" ${PUERTO_JELLYFIN:-8096} "* ]]; then
+  puertos+=("7359/udp")
+fi
 reglas=()
 for p in "${puertos[@]}"; do
   for red in 192.168.0.0/16 10.0.0.0/8 172.16.0.0/12; do

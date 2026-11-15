@@ -14,7 +14,7 @@ Uso: medios <comando>
   progreso            cuántos vídeos lleva indexados el DLNA, en directo
   reescanear          busca vídeos nuevos en el DLNA ahora mismo
   buscar "texto"      busca una película o serie sin acertar el nombre exacto
-  logs [qué] [-f]     los registros: montaje, dlna, reenvios o reescaneo (-f: en directo)
+  logs [qué] [-f]     los registros: montaje, dlna, reenvios, reescaneo o descubrimiento (-f: en directo)
   actualizar          baja la última versión y la instala, sin tocar la configuración
   version             la versión instalada
   ayuda [comando]     esta ayuda, o más detalle de un comando (también -h y --help)
@@ -37,6 +37,9 @@ ayuda_comando() {
       echo "  Tailscale ni en otras interfaces, y se mueven solos si esa IP cambia."
       echo "  Con -j o --jellyfin enseña además un código QR con la dirección de Jellyfin,"
       echo "  para abrirla en el móvil. Se pueden juntar: medios on --forzar -j"
+      echo "  Si PUERTO_JELLYFIN está en REENVIOS, contesta además al descubrimiento de las apps de Jellyfin"
+      echo "  (7359/udp), para que encuentren el servidor solas sin escribir la dirección."
+      echo "  DESCUBRIMIENTO_JELLYFIN=no lo desactiva."
       echo "  La primera vez, si falta qrencode, lo descarga e instala (pide la contraseña de sudo)."
       echo "  En Docker no se usa: se enciende con docker compose up -d."
       ;;
@@ -77,7 +80,7 @@ ayuda_comando() {
       echo "  anterior hasta medios off y medios on. En Docker se reconstruye la imagen."
       ;;
     logs)
-      echo "medios logs [montaje|dlna|reenvios|reescaneo] [-f]"
+      echo "medios logs [montaje|dlna|reenvios|reescaneo|descubrimiento] [-f]"
       echo "  Enseña las últimas 50 líneas de los registros de media-bridge, de todo o de una parte."
       echo "  Con -f se queda mostrando lo que va pasando (Ctrl+C para salir)."
       echo "  En Docker los registros se ven con docker compose logs -f."
@@ -175,6 +178,7 @@ source "$CONF"
 : "${REENVIOS_SOLO_LAN:=no}"
 : "${CLAVE_SSH:=}"
 : "${PUERTO_JELLYFIN:=8096}"
+: "${DESCUBRIMIENTO_JELLYFIN:=si}"
 if [ -z "${CARPETAS+x}" ]; then
   echo "Falta CARPETAS en $CONF"
   exit 1
@@ -185,6 +189,10 @@ if ! [[ "$REESCANEO_SEGUNDOS" =~ ^[0-9]+$ ]]; then
 fi
 if [ "$REENVIOS_SOLO_LAN" != si ] && [ "$REENVIOS_SOLO_LAN" != no ]; then
   echo "REENVIOS_SOLO_LAN tiene que ser si o no"
+  exit 1
+fi
+if [ "$DESCUBRIMIENTO_JELLYFIN" != si ] && [ "$DESCUBRIMIENTO_JELLYFIN" != no ]; then
+  echo "DESCUBRIMIENTO_JELLYFIN tiene que ser si o no"
   exit 1
 fi
 HUELLA="$DB_DLNA/huella-lista"
@@ -261,6 +269,24 @@ dlna_activo() {
   fi
 }
 
+descubrimiento_previsto() {
+  [ "$DESCUBRIMIENTO_JELLYFIN" = si ] && [[ " $REENVIOS " == *" $PUERTO_JELLYFIN "* ]]
+}
+
+descubrimiento_activo() {
+  if en_docker; then
+    pgrep -f "descubrimiento.py" >/dev/null
+  else
+    systemctl --user -q is-active media-bridge-descubrimiento.service
+  fi
+}
+
+texto_descubrimiento() {
+  if descubrimiento_activo; then
+    echo "Jellyfin: las apps de la red local lo encuentran solas (descubrimiento en 7359/udp)"
+  fi
+}
+
 reiniciar_dlna() {
   if en_docker; then
     kill -USR1 1
@@ -330,6 +356,7 @@ estado_docker() {
       echo "Reenvío:  http://$ip:$p"
     fi
   done
+  texto_descubrimiento
   if dlna_activo; then
     echo "DLNA:     $NOMBRE_DLNA"
     texto_reescaneo
@@ -353,6 +380,7 @@ estado() {
       echo "Reenvío:  http://$ip:$p"
     fi
   done
+  texto_descubrimiento
   if dlna_activo; then
     echo "DLNA:     $NOMBRE_DLNA"
     texto_reescaneo
@@ -550,6 +578,13 @@ comprobar_puertos() {
   if [ "$DLNA" = si ] && ! dlna_activo; then
     comprobar_puerto "$PUERTO_DLNA" && libres+=" $PUERTO_DLNA"
   fi
+  if descubrimiento_previsto && ! descubrimiento_activo; then
+    if ss -Hlun "( sport = :7359 )" | grep -q .; then
+      mal "El puerto 7359/udp del descubrimiento de Jellyfin ya lo usa otro programa (¿un Jellyfin en este equipo?). Libéralo o pon DESCUBRIMIENTO_JELLYFIN=no"
+    else
+      libres+=" 7359/udp"
+    fi
+  fi
   [ -n "$libres" ] && bien "Puertos libres:$libres"
   return 0
 }
@@ -560,6 +595,7 @@ comprobar_firewall() {
   systemctl -q is-active ufw 2>/dev/null || return
   [ -r /etc/ufw/user.rules ] || return
   [ "$DLNA" = si ] && puertos+=" $PUERTO_DLNA 1900"
+  descubrimiento_previsto && puertos+=" 7359"
   for p in $puertos; do
     grep -qE -- "--dport $p( |$)" /etc/ufw/user.rules || cerrados+="${cerrados:+, }$p"
   done
@@ -617,6 +653,9 @@ case "${1:-estado}" in
     for p in $REENVIOS; do
       systemctl --user start "media-bridge-forward@$p.service"
     done
+    if descubrimiento_previsto; then
+      systemctl --user start media-bridge-descubrimiento.service
+    fi
     sleep 3
     estado
     [ "$QR" = si ] && mostrar_qr
@@ -645,6 +684,7 @@ case "${1:-estado}" in
         dlna) unidades+=(-u media-bridge-dlna.service) ;;
         reenvios|reenvíos) unidades+=(-u 'media-bridge-forward@*') ;;
         reescaneo) unidades+=(-u media-bridge-rescan.service) ;;
+        descubrimiento) unidades+=(-u media-bridge-descubrimiento.service) ;;
         *)
           echo "No conozco \"$o\""
           echo
@@ -746,6 +786,11 @@ case "${1:-estado}" in
       reenviar_solo_lan "$2"
     fi
     exec socat "TCP-LISTEN:$2,fork,reuseaddr" "TCP:$SERVIDOR:$2"
+    ;;
+  _descubrimiento)
+    exec python3 -u "$SHARE/descubrimiento.py" \
+      --info "http://$SERVIDOR:$PUERTO_JELLYFIN/System/Info/Public" \
+      --puerto-jellyfin "$PUERTO_JELLYFIN"
     ;;
   _vigilar)
     if [ "$REESCANEO_SEGUNDOS" -eq 0 ]; then

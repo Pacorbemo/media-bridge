@@ -115,6 +115,9 @@ Si usas Claude Code, Codex, Gemini/Antigravity, Cursor u otro asistente, abre el
 | `PUERTO_JELLYFIN` | Cuál de los `REENVIOS` es Jellyfin, para el QR de `-j` y el descubrimiento | `8096` |
 | `DESCUBRIMIENTO_JELLYFIN` | Contestar a las apps de Jellyfin para que encuentren el servidor solas (`si`/`no`); solo funciona si `PUERTO_JELLYFIN` está en `REENVIOS` | `si` |
 | `EXTENSIONES` | Extensiones que cuentan como vídeo | `"mkv mp4 avi"` |
+| `RECIENTES` | Añadir al DLNA la carpeta «Añadidos recientemente» (`si`/`no`; ver [abajo](#añadidos-recientemente)) | `no` |
+| `RECIENTES_CANTIDAD` | Cuántos vídeos enseña esa carpeta | `10` |
+| `RECIENTES_CARPETAS` | De qué `CARPETAS` salen; vacío para todas | `("Movies")` |
 
 ## Uso
 
@@ -150,6 +153,26 @@ Antes de arrancar nada, `medios on` comprueba que hay red local, que la red loca
 ### Reescaneo automático
 
 Cada `REESCANEO_SEGUNDOS` (una hora por defecto) compara la lista de vídeos del servidor con la que había en el último indexado. Si no ha cambiado nada, no hace nada. Si hay vídeos nuevos o borrados, reinicia el DLNA para que los añada, salvo que alguien esté viendo algo: entonces espera a la siguiente vuelta. Comparar la lista es barato (un `find` por SSH), así que puedes bajar el intervalo a unos minutos sin problema.
+
+### Añadidos recientemente
+
+Con `RECIENTES=si`, el DLNA enseña una carpeta más, «Añadidos recientemente», con los últimos `RECIENTES_CANTIDAD` vídeos (10 por defecto) que han llegado al servidor, numerados del más nuevo al más antiguo:
+
+```
+01 · Toy Story 5 (2026)
+02 · Ali G: Kién es yo? (2026)
+03 · Weapons (2025)
+```
+
+- No copia nada: son enlaces en `DB_DLNA` que apuntan a los vídeos montados.
+- Cada vídeo sale con el nombre de su carpeta (`Toy Story 5 (2026)`), no con el del fichero (`Toy.Story.5.2026.UHD.BluRay...`). Si está suelto, con el del fichero.
+- Cuenta la fecha en que media-bridge vio el vídeo por primera vez, no la del fichero, que en los montajes de rclone suele ser la del original. La primera vez no tiene historial y usa la del fichero. Las fechas se guardan en `DB_DLNA/llegadas`.
+- Se rehace cada vez que arranca el DLNA, es decir, al encender y cada vez que el [reescaneo automático](#reescaneo-automático) encuentra cambios.
+- `RECIENTES_CARPETAS` elige de qué carpetas salen. Por ejemplo, `("Movies")` para dejar fuera las series y que la carpeta no se llene de episodios sueltos.
+
+Activarla o desactivarla cambia la lista de carpetas del DLNA, así que **la primera vez indexa todo de nuevo** (como al cambiar `CARPETAS`). `medios on` lo avisa.
+
+Algunos `.mp4` llevan un título interno y la televisión enseña ese título en lugar del nombre, sin el número; siguen en la carpeta, pero puede que no salgan en su sitio.
 
 ### Descubrimiento de Jellyfin
 
@@ -253,7 +276,7 @@ Los tests usan solo Python 3 y bash, sin instalar nada:
 python3 -m unittest discover -s tests -v
 ```
 
-Prueban la búsqueda de `lib/buscar.py`, la ayuda y los errores de `bin/medios` (sin SSH ni systemd: no encienden nada) y la configuración que genera el entrypoint de Docker. Los del entrypoint se saltan si no existe `/ssh/clave`; en GitHub Actions se crea una falsa para que se ejecuten.
+Prueban la búsqueda de `lib/buscar.py`, los enlaces de `lib/recientes.py`, la ayuda y los errores de `bin/medios` (sin SSH ni systemd: no encienden nada) y la configuración que genera el entrypoint de Docker. Los del entrypoint se saltan si no existe `/ssh/clave`; en GitHub Actions se crea una falsa para que se ejecuten.
 
 GitHub ejecuta los tests y `shellcheck` en cada push y pull request. Para pasar `shellcheck` en local:
 

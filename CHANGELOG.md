@@ -2,6 +2,12 @@
 
 Lo que cambia en cada versión de media-bridge. La versión instalada se ve con `medios version`.
 
+## Sin publicar
+
+### Añadido
+
+- **Carpeta «Añadidos recientemente» en el DLNA**, opcional (`RECIENTES=si`). Enseña los últimos `RECIENTES_CANTIDAD` vídeos (10 por defecto) que han llegado al servidor, numerados del más nuevo al más antiguo y con el nombre de su carpeta. `RECIENTES_CARPETAS` elige de qué carpetas salen, por ejemplo solo las de películas. Se rehace al encender y cada vez que el reescaneo encuentra cambios, y `medios estado` la menciona.
+
 ## 0.4.0
 
 Publicada el 2026-11-15.

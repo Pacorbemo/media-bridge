@@ -8,7 +8,8 @@ from pathlib import Path
 RAIZ = Path(__file__).resolve().parent.parent
 ENTRYPOINT = RAIZ / "docker" / "entrypoint.sh"
 VARIABLES = ["SERVIDOR", "USUARIO_SSH", "RUTA_MEDIOS", "REENVIOS", "DLNA", "NOMBRE_DLNA", "PUERTO_DLNA",
-             "INTERFAZ", "PUNTO_MONTAJE", "DB_DLNA", "EXTENSIONES", "REESCANEO_SEGUNDOS", "DESCUBRIMIENTO_JELLYFIN"]
+             "INTERFAZ", "PUNTO_MONTAJE", "DB_DLNA", "EXTENSIONES", "REESCANEO_SEGUNDOS", "DESCUBRIMIENTO_JELLYFIN",
+             "RECIENTES", "RECIENTES_CANTIDAD"]
 
 
 @unittest.skipUnless(os.access("/ssh/clave", os.R_OK), "el entrypoint exige /ssh/clave; el CI la crea")
@@ -33,6 +34,11 @@ class Entrypoint(unittest.TestCase):
                  "_", str(conf), *VARIABLES],
                 capture_output=True, text=True, check=True,
             ).stdout.splitlines()
+            self.recientes = subprocess.run(
+                ["bash", "-c", 'source "$1"; printf "%s\\n" "${RECIENTES_CARPETAS[@]}"', "_", str(conf)],
+                capture_output=True, text=True, check=True,
+            ).stdout.splitlines()
+            self.recientes = [c for c in self.recientes if c]
             n = len(VARIABLES)
             valores = dict(l.split("=", 1) for l in vuelta[:n + 1])
             carpetas = vuelta[n + 1:]
@@ -61,6 +67,16 @@ class Entrypoint(unittest.TestCase):
         self.assertEqual(valores["DB_DLNA"], "/data/dlna")
         self.assertEqual(valores["REESCANEO_SEGUNDOS"], "3600")
         self.assertEqual(valores["DESCUBRIMIENTO_JELLYFIN"], "si")
+        self.assertEqual(valores["RECIENTES"], "no")
+        self.assertEqual(valores["RECIENTES_CANTIDAD"], "10")
+        self.assertEqual(self.recientes, [])
+
+    def test_recientes_carpetas_con_comas(self):
+        valores, _ = self.generar(SERVIDOR="s", USUARIO_SSH="u", RUTA_MEDIOS="/m", CARPETAS="Movies,Tv Shows",
+                                  RECIENTES="si", RECIENTES_CANTIDAD="5", RECIENTES_CARPETAS=" Movies , Movies Debrid,")
+        self.assertEqual(valores["RECIENTES"], "si")
+        self.assertEqual(valores["RECIENTES_CANTIDAD"], "5")
+        self.assertEqual(self.recientes, ["Movies", "Movies Debrid"])
 
 
 

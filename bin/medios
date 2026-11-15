@@ -40,6 +40,9 @@ ayuda_comando() {
       echo "  Si PUERTO_JELLYFIN está en REENVIOS, contesta además al descubrimiento de las apps de Jellyfin"
       echo "  (7359/udp), para que encuentren el servidor solas sin escribir la dirección."
       echo "  DESCUBRIMIENTO_JELLYFIN=no lo desactiva."
+      echo "  Con RECIENTES=si añade al DLNA la carpeta \"Añadidos recientemente\" con los"
+      echo "  RECIENTES_CANTIDAD últimos vídeos (10 por defecto) de RECIENTES_CARPETAS, numerados del más nuevo"
+      echo "  al más antiguo. Se rehace cada vez que el reescaneo encuentra cambios."
       echo "  La primera vez, si falta qrencode, lo descarga e instala (pide la contraseña de sudo)."
       echo "  En Docker no se usa: se enciende con docker compose up -d."
       ;;
@@ -179,6 +182,8 @@ source "$CONF"
 : "${CLAVE_SSH:=}"
 : "${PUERTO_JELLYFIN:=8096}"
 : "${DESCUBRIMIENTO_JELLYFIN:=si}"
+: "${RECIENTES:=no}"
+: "${RECIENTES_CANTIDAD:=10}"
 if [ -z "${CARPETAS+x}" ] || [ "${#CARPETAS[@]}" -eq 0 ] || [ -z "${CARPETAS[0]}" ]; then
   echo "Falta CARPETAS en $CONF"
   exit 1
@@ -187,7 +192,7 @@ if ! [[ "$REESCANEO_SEGUNDOS" =~ ^[0-9]+$ ]]; then
   echo "REESCANEO_SEGUNDOS tiene que ser un número de segundos (0 para desactivarlo)"
   exit 1
 fi
-for v in DLNA REENVIOS_SOLO_LAN DESCUBRIMIENTO_JELLYFIN; do
+for v in DLNA REENVIOS_SOLO_LAN DESCUBRIMIENTO_JELLYFIN RECIENTES; do
   if [ "${!v}" != si ] && [ "${!v}" != no ]; then
     echo "$v tiene que ser si o no"
     exit 1
@@ -199,7 +204,25 @@ for p in ${DLNA:+${PUERTO_DLNA:-}} ${PUERTO_JELLYFIN:-} $REENVIOS; do
     exit 1
   fi
 done
+if ! [[ "$RECIENTES_CANTIDAD" =~ ^[1-9][0-9]*$ ]]; then
+  echo "RECIENTES_CANTIDAD tiene que ser un número mayor que 0"
+  exit 1
+fi
+if [ -z "${RECIENTES_CARPETAS+x}" ] || [ "${#RECIENTES_CARPETAS[@]}" -eq 0 ] || [ -z "${RECIENTES_CARPETAS[0]}" ]; then
+  RECIENTES_CARPETAS=("${CARPETAS[@]}")
+fi
+for r in "${RECIENTES_CARPETAS[@]}"; do
+  encontrada=no
+  for c in "${CARPETAS[@]}"; do
+    [ "$r" = "$c" ] && encontrada=si
+  done
+  if [ "$encontrada" = no ]; then
+    echo "RECIENTES_CARPETAS incluye \"$r\", que no está en CARPETAS"
+    exit 1
+  fi
+done
 HUELLA="$DB_DLNA/huella-lista"
+DIR_RECIENTES="$DB_DLNA/Añadidos recientemente"
 OPCIONES_CLAVE=()
 if [ -n "$CLAVE_SSH" ]; then
   OPCIONES_CLAVE=(-o "IdentityFile=$CLAVE_SSH" -o IdentitiesOnly=yes)
@@ -299,15 +322,56 @@ reiniciar_dlna() {
   fi
 }
 
-listar_videos() {
-  local carpetas="" filtro="" c e
-  for c in "${CARPETAS[@]}"; do
+buscar_en_servidor() {
+  local formato=$1 carpetas="" filtro="" impresion="" c e
+  shift
+  for c in "$@"; do
     carpetas+=" $(printf '%q' "$c")"
   done
   for e in $EXTENSIONES; do
     filtro+="${filtro:+ -o} -iname '*.$e'"
   done
-  ssh_servidor "cd $(printf '%q' "$RUTA_MEDIOS") && find$carpetas \\( -type f -o -type l \\) \\( $filtro \\)"
+  if [ -n "$formato" ]; then
+    impresion=" -printf $(printf '%q' "$formato")"
+  fi
+  ssh_servidor "cd $(printf '%q' "$RUTA_MEDIOS") && find$carpetas \\( -type f -o -type l \\) \\( $filtro \\)$impresion"
+}
+
+listar_videos() {
+  buscar_en_servidor "" "${CARPETAS[@]}"
+}
+
+actualizar_recientes() {
+  local lista
+  [ "$RECIENTES" = si ] || return 0
+  mkdir -p "$DIR_RECIENTES"
+  if ! lista=$(buscar_en_servidor '%T@\t%p\n' "${RECIENTES_CARPETAS[@]}"); then
+    echo "No llego al servidor; dejo Añadidos recientemente como estaba"
+    return 0
+  fi
+  printf '%s\n' "$lista" | python3 "$SHARE/recientes.py" \
+    --llegadas "$DB_DLNA/llegadas" \
+    --destino "$DIR_RECIENTES" \
+    --montaje "$PUNTO_MONTAJE" \
+    --cantidad "$RECIENTES_CANTIDAD"
+}
+
+texto_recientes() {
+  if [ "$RECIENTES" = si ]; then
+    local lista
+    lista=$(printf '%s, ' "${RECIENTES_CARPETAS[@]}")
+    echo "Recientes: los $RECIENTES_CANTIDAD últimos de ${lista%, }"
+  fi
+}
+
+directorios_dlna() {
+  local c
+  if [ "$RECIENTES" = si ]; then
+    echo "media_dir=V,$DIR_RECIENTES"
+  fi
+  for c in "${CARPETAS[@]}"; do
+    echo "media_dir=V,$PUNTO_MONTAJE/$c"
+  done
 }
 
 huella_lista() {
@@ -363,6 +427,7 @@ estado_docker() {
   texto_descubrimiento
   if dlna_activo; then
     echo "DLNA:     $NOMBRE_DLNA"
+    texto_recientes
     texto_reescaneo
     texto_aparatos "$ip"
   fi
@@ -387,6 +452,7 @@ estado() {
   texto_descubrimiento
   if dlna_activo; then
     echo "DLNA:     $NOMBRE_DLNA"
+    texto_recientes
     texto_reescaneo
     texto_aparatos "$ip"
   fi
@@ -396,13 +462,11 @@ estado() {
 }
 
 generar_conf_dlna() {
-  local conf="$DB_DLNA/minidlna.conf" c
+  local conf="$DB_DLNA/minidlna.conf"
   mkdir -p "$DB_DLNA"
   {
     echo "friendly_name=$NOMBRE_DLNA"
-    for c in "${CARPETAS[@]}"; do
-      echo "media_dir=V,$PUNTO_MONTAJE/$c"
-    done
+    directorios_dlna
     echo "db_dir=$DB_DLNA"
     echo "log_dir=$DB_DLNA"
     echo "port=$PUERTO_DLNA"
@@ -614,14 +678,14 @@ comprobar_firewall() {
 }
 
 comprobar_indice() {
-  local conf="$DB_DLNA/minidlna.conf" antes ahora c
+  local conf="$DB_DLNA/minidlna.conf" antes ahora
   [ "$DLNA" = si ] || return
   [ -f "$DB_DLNA/files.db" ] && [ -f "$conf" ] || return
   dlna_activo && return
   antes=$(grep '^media_dir=' "$conf")
-  ahora=$(for c in "${CARPETAS[@]}"; do echo "media_dir=V,$PUNTO_MONTAJE/$c"; done)
+  ahora=$(directorios_dlna)
   if [ "$antes" != "$ahora" ]; then
-    aviso "Has cambiado CARPETAS: el DLNA va a indexar todo de nuevo. Sigue el avance con: medios progreso"
+    aviso "Has cambiado CARPETAS o RECIENTES: el DLNA va a indexar todo de nuevo. Sigue el avance con: medios progreso"
   fi
 }
 
@@ -720,6 +784,9 @@ case "${1:-estado}" in
       exit 1
     fi
     total=$(listar_videos | wc -l)
+    if [ "$RECIENTES" = si ] && [ -d "$DIR_RECIENTES" ]; then
+      total=$(( total + $(find "$DIR_RECIENTES" -maxdepth 1 -type l | wc -l) ))
+    fi
     inicio=$(date +%s)
     n0=$(contar)
     n0=${n0:-0}
@@ -786,6 +853,7 @@ case "${1:-estado}" in
     ;;
   _dlna)
     conf=$(generar_conf_dlna)
+    actualizar_recientes
     if ! huella_lista > "$HUELLA.tmp" 2>/dev/null; then
       rm -f "$HUELLA.tmp"
     else

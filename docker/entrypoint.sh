@@ -1,13 +1,18 @@
 #!/usr/bin/env bash
 set -uo pipefail
 
-carpetas=()
-IFS=',' read -ra lista <<< "${CARPETAS:-}"
-for c in "${lista[@]}"; do
-  c="${c#"${c%%[![:space:]]*}"}"
-  c="${c%"${c##*[![:space:]]}"}"
-  [ -n "$c" ] && carpetas+=("$c")
-done
+separar_comas() {
+  local c lista
+  IFS=',' read -ra lista <<< "$1"
+  for c in "${lista[@]}"; do
+    c="${c#"${c%%[![:space:]]*}"}"
+    c="${c%"${c##*[![:space:]]}"}"
+    [ -n "$c" ] && printf '%s\n' "$c"
+  done
+}
+
+mapfile -t carpetas < <(separar_comas "${CARPETAS:-}")
+mapfile -t recientes_carpetas < <(separar_comas "${RECIENTES_CARPETAS:-}")
 for v in SERVIDOR USUARIO_SSH RUTA_MEDIOS; do
   if [ -z "${!v:-}" ]; then
     echo "Falta la variable $v en media-bridge.env"
@@ -46,6 +51,13 @@ fi
   printf 'REESCANEO_SEGUNDOS=%q\n' "${REESCANEO_SEGUNDOS:-3600}"
   printf 'REENVIOS_SOLO_LAN=%q\n' "${REENVIOS_SOLO_LAN:-no}"
   printf 'CLAVE_SSH=\n'
+  printf 'RECIENTES=%q\n' "${RECIENTES:-no}"
+  printf 'RECIENTES_CANTIDAD=%q\n' "${RECIENTES_CANTIDAD:-10}"
+  printf 'RECIENTES_CARPETAS=('
+  for c in "${recientes_carpetas[@]}"; do
+    printf '%q ' "$c"
+  done
+  printf ')\n'
 } > "$MEDIA_BRIDGE_CONFIG"
 
 # shellcheck source=/dev/null

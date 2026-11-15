@@ -78,6 +78,7 @@ En Docker, `CLAVE_SSH` es la variable de `compose.yaml` que elige qué clave se 
 - **No reinicies `media-bridge-dlna` mientras alguien está viendo algo.** Mira antes `ss -tn "( sport = :8200 )"`, pero no te fíes del todo: la televisión no mantiene la conexión abierta todo el rato. Pregúntale al usuario.
 - **No cambies `CARPETAS` sin avisar.** Añadir, quitar o reordenar carpetas hace que minidlna borre el índice y lo rehaga entero. Mientras tanto, la televisión da "no compatible" en lo que tenía abierto. Avisa y estima el tiempo.
 - **No borres `DB_DLNA`:** obliga a indexar todo de nuevo.
+- **No actives ni desactives `RECIENTES` sin avisar:** añade o quita una carpeta del DLNA y pasa lo mismo que al cambiar `CARPETAS`. Si el usuario no quiere series en esa carpeta, usa `RECIENTES_CARPETAS`, no filtros por nombre: hay series sin `S01E01` en el nombre.
 - **No pongas un reescaneo a ciegas.** `medios _vigilar` solo reinicia el DLNA si cambia la lista de vídeos (la huella está en `DB_DLNA/huella-lista`); si alguien pide que se reescanee más a menudo, baja `REESCANEO_SEGUNDOS` en vez de añadir timers o cron.
 - **No actives el `minidlna.service` del sistema:** choca en el puerto 8200.
 - **No habilites los servicios para el arranque.** El diseño es manual, con `medios on` y `medios off`.
@@ -101,6 +102,7 @@ Primero `medios estado` (dice qué aparatos han encontrado el DLNA y cuáles est
 - `bin/medios`: el comando. Lee la configuración y también hace de punto de entrada de los servicios, con los subcomandos internos que empiezan por `_`. `version`, `actualizar` y la ayuda (`-h`, `--help`, `ayuda [comando]` y `<comando> -h`) se resuelven antes de leer la configuración, así que funcionan aunque no exista. Si añades o cambias un comando, actualiza también su texto en `ayuda` y `ayuda_comando`, el autocompletado y la tabla de uso del README.
 - `systemd/`: servicios de usuario `media-bridge-*` (montaje, DLNA, reenvíos, descubrimiento de Jellyfin y el vigilante de cambios `media-bridge-rescan`, que ejecuta `medios _vigilar`).
 - `lib/buscar.py`: la búsqueda aproximada de `medios buscar`.
+- `lib/recientes.py`: rehace los enlaces de «Añadidos recientemente» en `DB_DLNA` con la lista que le pasa `medios _dlna` (fecha y ruta de cada vídeo de `RECIENTES_CARPETAS`). Guarda en `DB_DLNA/llegadas` cuándo vio cada vídeo por primera vez; si la lista llega vacía, no toca nada.
 - `lib/descubrimiento.py`: contesta al descubrimiento de las apps de Jellyfin (`who is JellyfinServer?` en 7359/udp) en nombre del servidor, con el mismo JSON que Jellyfin (`Address`, `Id`, `Name`, `EndpointAddress`). Lo arranca `medios _descubrimiento`, desde el servicio `media-bridge-descubrimiento` o desde el entrypoint de Docker. No contesta si no puede leer `/System/Info/Public`.
 - `completions/`: autocompletado para zsh y bash.
 - `install.sh` / `uninstall.sh`.

@@ -112,11 +112,23 @@ class Configuracion(Medios):
                 self.assertIn("REESCANEO_SEGUNDOS tiene que ser un número de segundos", out)
 
     def test_si_o_no(self):
-        for var in ("DLNA", "REENVIOS_SOLO_LAN", "DESCUBRIMIENTO_JELLYFIN"):
+        for var in ("DLNA", "REENVIOS_SOLO_LAN", "DESCUBRIMIENTO_JELLYFIN", "RECIENTES"):
             with self.subTest(var=var):
                 rc, out = self.medios("estado", config=CONFIG_BUENA + f"{var}=quizas\n")
                 self.assertEqual(rc, 1)
                 self.assertIn(f"{var} tiene que ser si o no", out)
+
+    def test_recientes_cantidad_no_valida(self):
+        for valor in ("0", "diez", "-3", "1.5"):
+            with self.subTest(valor=valor):
+                rc, out = self.medios("estado", config=CONFIG_BUENA + f"RECIENTES_CANTIDAD={valor}\n")
+                self.assertEqual(rc, 1)
+                self.assertIn("RECIENTES_CANTIDAD tiene que ser un número mayor que 0", out)
+
+    def test_recientes_carpeta_que_no_esta_en_carpetas(self):
+        rc, out = self.medios("estado", config=CONFIG_BUENA + 'RECIENTES_CARPETAS=("Movies" "Documentales")\n')
+        self.assertEqual(rc, 1)
+        self.assertIn('RECIENTES_CARPETAS incluye "Documentales", que no está en CARPETAS', out)
 
     def test_puerto_no_valido(self):
         for linea in ("PUERTO_DLNA=abc", "PUERTO_DLNA=0", "PUERTO_JELLYFIN=70000", 'REENVIOS="8096,8920"'):

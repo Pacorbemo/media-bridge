@@ -8,12 +8,13 @@ ayuda() {
   cat <<EOF
 Uso: medios <comando>
 
-  on                  monta las carpetas, arranca el DLNA y los reenvíos
+  on [-j]             monta las carpetas, arranca el DLNA y los reenvíos (-j: QR de Jellyfin)
   off                 lo apaga todo
-  estado              qué está encendido y en qué direcciones (lo que hace sin comando)
+  estado [-j]         qué está encendido, en qué direcciones y qué aparatos lo han encontrado
   progreso            cuántos vídeos lleva indexados el DLNA, en directo
   reescanear          busca vídeos nuevos en el DLNA ahora mismo
   buscar "texto"      busca una película o serie sin acertar el nombre exacto
+  logs [qué] [-f]     los registros: montaje, dlna, reenvios o reescaneo (-f: en directo)
   actualizar          baja la última versión y la instala, sin tocar la configuración
   version             la versión instalada
   ayuda [comando]     esta ayuda, o más detalle de un comando (también -h y --help)
@@ -34,6 +35,9 @@ ayuda_comando() {
       echo "  automático y reenvía los puertos de REENVIOS. Termina enseñando el estado."
       echo "  Con REENVIOS_SOLO_LAN=si los reenvíos escuchan solo en la IP de la red local, no en"
       echo "  Tailscale ni en otras interfaces, y se mueven solos si esa IP cambia."
+      echo "  Con -j o --jellyfin enseña además un código QR con la dirección de Jellyfin,"
+      echo "  para abrirla en el móvil. Se pueden juntar: medios on --forzar -j"
+      echo "  La primera vez, si falta qrencode, lo descarga e instala (pide la contraseña de sudo)."
       echo "  En Docker no se usa: se enciende con docker compose up -d."
       ;;
     off)
@@ -44,7 +48,9 @@ ayuda_comando() {
     estado)
       echo "medios estado"
       echo "  Lista los servicios, las direcciones de los reenvíos en la red local,"
-      echo "  el nombre del DLNA y cada cuánto se busca si hay vídeos nuevos."
+      echo "  el nombre del DLNA, cada cuánto se busca si hay vídeos nuevos y qué aparatos"
+      echo "  (televisiones, móviles) han encontrado el DLNA y cuáles están conectados ahora."
+      echo "  Con -j o --jellyfin enseña además el QR con la dirección de Jellyfin."
       echo "  Es lo que hace medios sin ningún comando."
       ;;
     progreso)
@@ -69,6 +75,12 @@ ayuda_comando() {
       echo "  Hace git pull en el clon desde el que se instaló y vuelve a ejecutar install.sh."
       echo "  Conserva la configuración y no reinicia nada: lo encendido sigue con la versión"
       echo "  anterior hasta medios off y medios on. En Docker se reconstruye la imagen."
+      ;;
+    logs)
+      echo "medios logs [montaje|dlna|reenvios|reescaneo] [-f]"
+      echo "  Enseña las últimas 50 líneas de los registros de media-bridge, de todo o de una parte."
+      echo "  Con -f se queda mostrando lo que va pasando (Ctrl+C para salir)."
+      echo "  En Docker los registros se ven con docker compose logs -f."
       ;;
     version)
       echo "medios version"
@@ -162,6 +174,7 @@ source "$CONF"
 : "${REESCANEO_SEGUNDOS:=3600}"
 : "${REENVIOS_SOLO_LAN:=no}"
 : "${CLAVE_SSH:=}"
+: "${PUERTO_JELLYFIN:=8096}"
 if [ -z "${CARPETAS+x}" ]; then
   echo "Falta CARPETAS en $CONF"
   exit 1
@@ -281,6 +294,33 @@ texto_reescaneo() {
   fi
 }
 
+aparatos_dlna() {
+  local propia=$1 n tipo ip_aparato abiertas
+  curl -s --max-time 5 "http://127.0.0.1:$PUERTO_DLNA/" \
+    | sed 's/<tr>/\n<tr>/g' \
+    | sed -nE 's#^<tr><td>([0-9]+)</td><td>([^<]*)</td><td>([^<]*)</td><td>[^<]*</td><td>([0-9]+)</td>.*#\1|\2|\3|\4#p' \
+    | while IFS='|' read -r n tipo ip_aparato abiertas; do
+        [ "$ip_aparato" = 127.0.0.1 ] && continue
+        [ "$ip_aparato" = "$propia" ] && continue
+        if [ "$abiertas" -gt 0 ]; then
+          echo "          $ip_aparato ($tipo), conectado ahora"
+        else
+          echo "          $ip_aparato ($tipo)"
+        fi
+      done
+}
+
+texto_aparatos() {
+  local lista
+  lista=$(aparatos_dlna "$1")
+  if [ -n "$lista" ]; then
+    echo "Aparatos que han encontrado el DLNA:"
+    echo "$lista"
+  else
+    echo "Ningún aparato ha encontrado todavía el DLNA"
+  fi
+}
+
 estado_docker() {
   local ip p
   ip=$(ip_local)
@@ -293,6 +333,7 @@ estado_docker() {
   if dlna_activo; then
     echo "DLNA:     $NOMBRE_DLNA"
     texto_reescaneo
+    texto_aparatos "$ip"
   fi
 }
 
@@ -315,6 +356,7 @@ estado() {
   if dlna_activo; then
     echo "DLNA:     $NOMBRE_DLNA"
     texto_reescaneo
+    texto_aparatos "$ip"
   fi
   if ! systemctl --user list-units --state=active --plain --no-legend 'media-bridge-*' | grep -q .; then
     echo "Todo apagado. Enciéndelo con: medios on"
@@ -339,6 +381,93 @@ generar_conf_dlna() {
     echo "strict_dlna=no"
   } > "$conf"
   echo "$conf"
+}
+
+FORZAR=no
+QR=no
+
+leer_opciones() {
+  local comando=$1 o
+  shift
+  for o in "$@"; do
+    case "$o" in
+      -j|--jellyfin) QR=si ;;
+      --forzar)
+        if [ "$comando" = on ]; then
+          FORZAR=si
+        else
+          echo "No conozco la opción \"$o\""
+          echo
+          ayuda_comando "$comando"
+          exit 1
+        fi
+        ;;
+      *)
+        echo "No conozco la opción \"$o\""
+        echo
+        ayuda_comando "$comando"
+        exit 1
+        ;;
+    esac
+  done
+}
+
+reenvio_activo() {
+  if en_docker; then
+    pgrep -f "socat TCP-LISTEN:$1," >/dev/null
+  else
+    systemctl --user -q is-active "media-bridge-forward@$1.service"
+  fi
+}
+
+mostrar_qr() {
+  local url
+  if ! [[ " $REENVIOS " == *" $PUERTO_JELLYFIN "* ]]; then
+    echo
+    echo "Jellyfin (puerto $PUERTO_JELLYFIN) no está en REENVIOS, así que no hay dirección que enseñar"
+    return
+  fi
+  if ! reenvio_activo "$PUERTO_JELLYFIN"; then
+    echo
+    echo "El reenvío de Jellyfin no está encendido. Enciéndelo con: medios on"
+    return
+  fi
+  url="http://$(ip_local):$PUERTO_JELLYFIN"
+  echo
+  echo "Jellyfin: $url"
+  asegurar_qrencode || return
+  qrencode -t ANSIUTF8 -m 2 "$url"
+}
+
+asegurar_qrencode() {
+  command -v qrencode >/dev/null && return 0
+  echo
+  echo "Para el código QR hace falta qrencode y no está instalado."
+  if en_docker; then
+    echo "Lo descargo ahora dentro del contenedor (solo esta vez)..."
+    apk add --no-cache -q libqrencode-tools >/dev/null
+  elif [ ! -t 0 ]; then
+    echo "No puedo pedirte la contraseña de sudo desde aquí. Instálalo a mano (paquete qrencode) y vuelve a probar."
+    return 1
+  elif command -v pacman >/dev/null; then
+    echo "Lo descargo e instalo ahora (solo esta vez). Te pedirá la contraseña de sudo:"
+    sudo pacman -S --needed --noconfirm qrencode
+  elif command -v apt-get >/dev/null; then
+    echo "Lo descargo e instalo ahora (solo esta vez). Te pedirá la contraseña de sudo:"
+    sudo apt-get install -y qrencode
+  elif command -v dnf >/dev/null; then
+    echo "Lo descargo e instalo ahora (solo esta vez). Te pedirá la contraseña de sudo:"
+    sudo dnf install -y qrencode
+  else
+    echo "No sé instalarlo en este sistema. Instala el paquete qrencode a mano y vuelve a probar."
+    return 1
+  fi
+  if ! command -v qrencode >/dev/null; then
+    echo "No se pudo instalar qrencode. Puedes abrir la dirección de arriba escribiéndola en el móvil."
+    return 1
+  fi
+  echo "qrencode instalado; las próximas veces el QR sale directamente."
+  echo
 }
 
 ERRORES=0
@@ -475,7 +604,8 @@ case "${1:-estado}" in
     fi
     ;;&
   on)
-    if [ "${2:-}" != "--forzar" ]; then
+    leer_opciones "${1:-estado}" "${@:2}"
+    if [ "$FORZAR" != si ]; then
       comprobar || exit 1
     fi
     if [ "$DLNA" = si ]; then
@@ -489,13 +619,42 @@ case "${1:-estado}" in
     done
     sleep 3
     estado
+    [ "$QR" = si ] && mostrar_qr
     ;;
   off)
     systemctl --user stop 'media-bridge-*'
     estado
     ;;
   estado)
+    leer_opciones "${1:-estado}" "${@:2}"
     estado
+    [ "$QR" = si ] && mostrar_qr
+    ;;
+  logs)
+    if en_docker; then
+      echo "En Docker los registros se ven desde fuera con: docker compose logs -f"
+      exit 1
+    fi
+    shift
+    unidades=()
+    seguir=()
+    for o in "$@"; do
+      case "$o" in
+        -f|--seguir) seguir=(-f) ;;
+        montaje) unidades+=(-u media-bridge-mount.service) ;;
+        dlna) unidades+=(-u media-bridge-dlna.service) ;;
+        reenvios|reenvíos) unidades+=(-u 'media-bridge-forward@*') ;;
+        reescaneo) unidades+=(-u media-bridge-rescan.service) ;;
+        *)
+          echo "No conozco \"$o\""
+          echo
+          ayuda_comando logs
+          exit 1
+          ;;
+      esac
+    done
+    [ ${#unidades[@]} -gt 0 ] || unidades=(-u 'media-bridge-*')
+    exec journalctl --user "${unidades[@]}" -n 50 --no-pager -o short "${seguir[@]}"
     ;;
   buscar)
     shift

@@ -1,0 +1,31 @@
+name: version
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  publicar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Comprobar que VERSION coincide con la etiqueta
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          if [ "$(cat VERSION)" != "$v" ]; then
+            echo "VERSION dice $(cat VERSION) y la etiqueta es $GITHUB_REF_NAME"
+            exit 1
+          fi
+      - name: Sacar las notas del CHANGELOG
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          .github/notas-version.sh "$v" > notas.md
+          cat notas.md
+      - name: Crear la versión en GitHub
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release create "$GITHUB_REF_NAME" --verify-tag --title "media-bridge ${GITHUB_REF_NAME#v}" --notes-file notas.md

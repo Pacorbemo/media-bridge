@@ -6,7 +6,7 @@ from pathlib import Path
 
 RAIZ = Path(__file__).resolve().parent.parent
 MEDIOS = RAIZ / "bin" / "medios"
-COMANDOS = ["on", "off", "estado", "progreso", "reescanear", "buscar", "actualizar", "version", "ayuda"]
+COMANDOS = ["on", "off", "estado", "progreso", "reescanear", "buscar", "logs", "actualizar", "version", "ayuda"]
 CONFIG_BUENA = 'SERVIDOR=100.64.0.10\nUSUARIO_SSH=usuario\nRUTA_MEDIOS=/mnt/media\nCARPETAS=("Movies" "Tv Shows")\n'
 
 
@@ -125,3 +125,37 @@ class Configuracion(Medios):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class Opciones(Medios):
+    def test_opcion_desconocida_en_estado(self):
+        rc, out = self.medios("estado", "--forzar", config=CONFIG_BUENA)
+        self.assertEqual(rc, 1)
+        self.assertIn('No conozco la opción "--forzar"', out)
+        self.assertTrue(out.splitlines()[2].startswith("medios estado"), out)
+
+    def test_ayuda_de_on_explica_jellyfin(self):
+        rc, out = self.medios("ayuda", "on")
+        self.assertEqual(rc, 0)
+        self.assertIn("-j o --jellyfin", out)
+        self.assertIn("qrencode", out)
+
+    def test_logs_con_parte_desconocida(self):
+        rc, out = self.medios("logs", "tostadora", config=CONFIG_BUENA)
+        self.assertEqual(rc, 1)
+        self.assertIn('No conozco "tostadora"', out)
+        self.assertIn("medios logs [montaje|dlna|reenvios|reescaneo] [-f]", out)
+
+    def test_logs_en_docker(self):
+        self.conf.write_text(CONFIG_BUENA)
+        env = {
+            "PATH": os.environ["PATH"],
+            "HOME": str(self.dir),
+            "LANG": "C.UTF-8",
+            "MEDIA_BRIDGE_CONFIG": str(self.conf),
+            "MEDIA_BRIDGE_SHARE": str(self.share),
+            "MEDIA_BRIDGE_DOCKER": "1",
+        }
+        r = subprocess.run(["bash", str(MEDIOS), "logs"], capture_output=True, text=True, env=env, timeout=20)
+        self.assertEqual(r.returncode, 1)
+        self.assertIn("docker compose logs -f", r.stdout)

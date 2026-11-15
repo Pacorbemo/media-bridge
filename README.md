@@ -32,6 +32,8 @@ Todo funciona con servicios de usuario de systemd: no hace falta root para usarl
 | Debian / Ubuntu | `sudo apt install openssh-client sshfs socat minidlna python3 curl iproute2 fuse3` |
 | Fedora | `sudo dnf install openssh-clients fuse-sshfs socat minidlna python3 curl iproute fuse3` |
 
+`qrencode` no hace falta instalarlo: si usas `medios on -j` y no lo tienes, lo descarga e instala la primera vez, avisándote y pidiéndote la contraseña de sudo. En Docker se descarga dentro del contenedor.
+
 Comprueba antes que el portátil entra al servidor sin contraseña:
 
 ```bash
@@ -110,18 +112,20 @@ Si usas Claude Code, Codex, Cursor u otro asistente, abre el repo con él y píd
 | `REESCANEO_SEGUNDOS` | Cada cuánto mira si hay vídeos nuevos o borrados; `0` lo desactiva | `3600` |
 | `REENVIOS_SOLO_LAN` | `si` para que los reenvíos escuchen solo en la IP de la red local (ver [Seguridad](#seguridad)) | `no` |
 | `CLAVE_SSH` | Clave SSH concreta para entrar al servidor; vacío usa las de siempre. En Docker se elige al arrancar, con `CLAVE_SSH=/ruta docker compose up -d` | `~/.ssh/media-bridge` |
+| `PUERTO_JELLYFIN` | Cuál de los `REENVIOS` es Jellyfin, para el QR de `-j` | `8096` |
 | `EXTENSIONES` | Extensiones que cuentan como vídeo | `"mkv mp4 avi"` |
 
 ## Uso
 
 | Comando | Qué hace |
 | --- | --- |
-| `medios on` | Monta las carpetas, arranca el DLNA y los reenvíos, y te dice las direcciones |
+| `medios on` | Monta las carpetas, arranca el DLNA y los reenvíos, y te dice las direcciones. Con `-j` (`--jellyfin`) enseña también un QR con la dirección de Jellyfin para abrirla en el móvil |
 | `medios off` | Lo apaga todo |
-| `medios estado` | Qué está encendido |
+| `medios estado` | Qué está encendido y qué aparatos (televisiones, móviles) han encontrado el DLNA, marcando los conectados ahora. Con `-j` también el QR de Jellyfin |
 | `medios progreso` | Cuántos vídeos lleva indexados el DLNA, en directo, con ritmo y tiempo restante |
 | `medios reescanear` | Busca vídeos nuevos ya, sin esperar al reescaneo automático |
 | `medios buscar "texto"` | Busca en el servidor sin tener que acertar el nombre exacto |
+| `medios logs [montaje\|dlna\|reenvios\|reescaneo] [-f]` | Las últimas líneas de los registros, de todo o de una parte; con `-f`, en directo |
 | `medios actualizar` | Baja la última versión del repo y la vuelve a instalar, conservando tu configuración |
 | `medios version` | Qué versión tienes instalada |
 | `medios -h` | Qué hace cada comando; `medios ayuda on` (o `medios on -h`) da el detalle de uno |
@@ -232,7 +236,7 @@ Hace `git pull` en el clon desde el que instalaste y vuelve a ejecutar `./instal
 ./uninstall.sh
 ```
 
-Con `--purge` borra también la configuración y el índice del DLNA. Las reglas de `ufw` se quitan a mano (`sudo ufw status numbered`).
+Con `--purge` borra también la configuración y el índice del DLNA. Con `--firewall` quita las reglas de `ufw` que puso `./install.sh --firewall` (las que llevan el comentario `media-bridge`); pide la contraseña de sudo. Se pueden juntar: `./uninstall.sh --purge --firewall`.
 
 ## Desarrollo
 

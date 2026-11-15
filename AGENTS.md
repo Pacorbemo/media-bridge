@@ -54,6 +54,8 @@ Solo si el usuario lo pide o no quiere instalar paquetes. Explícale antes el av
 
 `medios on` ya hace las comprobaciones previas (red local, choque con Tailscale, SSH, carpetas, puertos, ufw e índice) y no enciende nada si alguna falla. Para verlas sin encender nada: `medios _comprobar`. No uses `--forzar` para saltarte un ✘ sin entender antes qué lo causa.
 
+Para abrir Jellyfin en el móvil, `medios on -j` o `medios estado -j` enseñan un código QR con su dirección (si falta `qrencode`, lo instala la primera vez con el gestor de paquetes y sudo, avisando antes; en Docker con `apk` dentro del contenedor; `PUERTO_JELLYFIN` dice cuál de los `REENVIOS` es Jellyfin). Sin `-j` no se enseña.
+
 - **Cada reenvío:** `curl` a `http://IP-local-del-puente:PUERTO` desde el propio puente.
 - **DLNA:** `medios progreso` hasta que diga "terminado". La primera indexación tarda: en el caso probado, unos 180 vídeos por minuto sobre sshfs.
 - **Descubrimiento:** la página `http://IP-local-del-puente:8200/` lista los clientes que se han conectado. Si aparece la IP de la televisión, ya ha encontrado el servidor.
@@ -83,6 +85,8 @@ En Docker, `CLAVE_SSH` es la variable de `compose.yaml` que elige qué clave se 
 
 ## Diagnóstico rápido
 
+Primero `medios estado` (dice qué aparatos han encontrado el DLNA y cuáles están conectados) y `medios logs [montaje|dlna|reenvios|reescaneo]`.
+
 | Síntoma | Causa probable | Qué mirar |
 | --- | --- | --- |
 | "No compatible" en algo que antes funcionaba | El índice se rehízo y cambiaron los identificadores | `journalctl --user -u media-bridge-dlna` muestra `New media_dir detected` o peticiones con 404. Volver a entrar en el servidor desde la televisión |
@@ -98,9 +102,9 @@ En Docker, `CLAVE_SSH` es la variable de `compose.yaml` que elige qué clave se 
 - `lib/buscar.py`: la búsqueda aproximada de `medios buscar`.
 - `completions/`: autocompletado para zsh y bash.
 - `install.sh` / `uninstall.sh`.
-- `VERSION`: la versión actual. Al publicar una nueva, súbela aquí, pasa lo de «Sin publicar» de `CHANGELOG.md` a un apartado `## X.Y.Z` (exactamente así, con la fecha en la línea siguiente: de ahí sale el texto de la versión en GitHub), y crea la etiqueta `vX.Y.Z` sobre ese commit.
+- `VERSION`: la versión actual. Al publicar una nueva, súbela aquí, pasa lo de «Sin publicar» de `CHANGELOG.md` a un apartado `## X.Y.Z` (exactamente así, con la fecha en la línea siguiente: de ahí sale el texto de la versión en GitHub), y crea la etiqueta `vX.Y.Z` sobre ese commit. Al subir la etiqueta, `.github/workflows/version.yml` comprueba que `VERSION` coincide y crea la versión en GitHub con el texto de ese apartado (lo saca `.github/notas-version.sh`).
 - `CHANGELOG.md`: cada cambio que note el usuario (comando, variable, comportamiento o arreglo) se añade en «Sin publicar», en el mismo commit que el cambio.
 - `tests/`: tests con `unittest`, sin dependencias. Ejecútalos con `python3 -m unittest discover -s tests -v` antes de subir. `test_medios.py` ejecuta `bin/medios` desde fuera con `MEDIA_BRIDGE_CONFIG` y `MEDIA_BRIDGE_SHARE` en un directorio temporal; no añadas tests que enciendan servicios, usen SSH o toquen systemd. Si cambias la ayuda, los mensajes de error, `buscar.py` o el entrypoint, ajusta o amplía su test.
 - `.github/workflows/tests.yml`: los tests en cada push y pull request. Crea una `/ssh/clave` falsa para que se ejecuten los del entrypoint, que en local se saltan.
-- `.github/workflows/shellcheck.yml`: pasa `shellcheck` a `bin/medios`, `install.sh`, `uninstall.sh` y `docker/entrypoint.sh` en cada push y pull request. Si cambias un script, que siga pasando; si un aviso es intencionado, desactívalo solo en esa línea con `# shellcheck disable=SCxxxx`.
+- `.github/workflows/shellcheck.yml`: pasa `shellcheck` a `bin/medios`, `install.sh`, `uninstall.sh`, `docker/entrypoint.sh` y `.github/notas-version.sh` en cada push y pull request. Si cambias un script, que siga pasando; si un aviso es intencionado, desactívalo solo en esa línea con `# shellcheck disable=SCxxxx`.
 - `Dockerfile`, `compose.yaml`, `docker/entrypoint.sh` y `media-bridge.env.example`: la variante en Docker. El entrypoint genera la configuración a partir de las variables de entorno y vigila los procesos. `medios` detecta que está dentro por `MEDIA_BRIDGE_DOCKER=1`, y en ese caso `reescanear` reinicia el DLNA enviando `USR1` al proceso 1.

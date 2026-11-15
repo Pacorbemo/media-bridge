@@ -12,4 +12,4 @@ jobs:
       - name: Comprobar los scripts
         run: |
           shellcheck --version
-          shellcheck bin/medios install.sh uninstall.sh docker/entrypoint.sh
+          shellcheck bin/medios install.sh uninstall.sh docker/entrypoint.sh .github/notas-version.sh

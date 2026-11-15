@@ -29,6 +29,7 @@ fi
   printf 'DLNA=%q\n' "${DLNA:-si}"
   printf 'NOMBRE_DLNA=%q\n' "${NOMBRE_DLNA:-media-bridge}"
   printf 'PUERTO_DLNA=%q\n' "${PUERTO_DLNA:-8200}"
+  printf 'PUERTO_JELLYFIN=%q\n' "${PUERTO_JELLYFIN:-8096}"
   printf 'INTERFAZ=%q\n' "${INTERFAZ:-}"
   printf 'PUNTO_MONTAJE=/media\n'
   printf 'DB_DLNA=/data/dlna\n'

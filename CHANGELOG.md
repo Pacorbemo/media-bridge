@@ -2,7 +2,9 @@
 
 Lo que cambia en cada versión de media-bridge. La versión instalada se ve con `medios version`.
 
-## Sin publicar
+## 0.4.0
+
+Publicada el 2026-11-15.
 
 ### Añadido
 

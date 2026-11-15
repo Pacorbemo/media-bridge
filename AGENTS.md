@@ -59,6 +59,17 @@ Solo si el usuario lo pide o no quiere instalar paquetes. Explícale antes el av
 - **Descubrimiento:** la página `http://IP-local-del-puente:8200/` lista los clientes que se han conectado. Si aparece la IP de la televisión, ya ha encontrado el servidor.
 - **Si la televisión no conecta:** busca bloqueos con `journalctl -k | grep "UFW BLOCK"`.
 
+## Seguridad
+
+Explícale siempre al usuario lo que dice el apartado de seguridad del README: el DLNA no tiene contraseña y cualquiera en la red del puente ve toda la biblioteca de `CARPETAS`, los reenvíos exponen el servicio tal cual y la clave SSH del puente entra en el servidor como `USUARIO_SSH`.
+
+Los dos refuerzos son opcionales y están desactivados por defecto. Propónselos, pero no los actives si no te lo pide:
+
+- **`REENVIOS_SOLO_LAN=si`:** `medios _reenviar` deja de hacer `exec socat` y se queda vigilando la IP local cada 10 s, relanzando `socat ...,bind=IP` si cambia. Para verificarlo, el `curl` tiene que ir a la IP local del puente: a `127.0.0.1` o a la IP de Tailscale ya no responde, y eso es lo esperado.
+- **Usuario SSH restringido:** sigue los pasos del README en el servidor, con el usuario mirando, porque necesitan sudo allí. `CLAVE_SSH` apunta a la clave nueva; vacía, `ssh` usa las de siempre. No propongas un usuario solo-SFTP ni `ChrootDirectory`: `buscar`, `progreso`, `_vigilar` y `_comprobar` ejecutan `find`, `true` y `[ -d ]` por SSH. Si los vídeos tienen enlaces a montajes FUSE (rclone), el usuario nuevo no los lee salvo con `--allow-other`; compruébalo con `sudo -u media-bridge ls` en el servidor antes de cambiar la configuración. Después, `medios _comprobar` en el puente.
+
+En Docker, `CLAVE_SSH` es la variable de `compose.yaml` que elige qué clave se monta en `/ssh/clave`; el entrypoint la deja vacía en la configuración interna.
+
 ## No hagas esto
 
 - **No reinicies `media-bridge-dlna` mientras alguien está viendo algo.** Mira antes `ss -tn "( sport = :8200 )"`, pero no te fíes del todo: la televisión no mantiene la conexión abierta todo el rato. Pregúntale al usuario.

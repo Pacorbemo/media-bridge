@@ -32,6 +32,8 @@ ayuda_comando() {
       echo "  También avisa (!) si ufw no abre los puertos o si va a reindexar todo por cambiar CARPETAS."
       echo "  Después monta las carpetas del servidor por sshfs, arranca el DLNA con el reescaneo"
       echo "  automático y reenvía los puertos de REENVIOS. Termina enseñando el estado."
+      echo "  Con REENVIOS_SOLO_LAN=si los reenvíos escuchan solo en la IP de la red local, no en"
+      echo "  Tailscale ni en otras interfaces, y se mueven solos si esa IP cambia."
       echo "  En Docker no se usa: se enciende con docker compose up -d."
       ;;
     off)
@@ -158,6 +160,8 @@ source "$CONF"
 : "${INTERFAZ:=}"
 : "${EXTENSIONES:=mkv mp4 avi m4v mov wmv mpg mpeg ts webm}"
 : "${REESCANEO_SEGUNDOS:=3600}"
+: "${REENVIOS_SOLO_LAN:=no}"
+: "${CLAVE_SSH:=}"
 if [ -z "${CARPETAS+x}" ]; then
   echo "Falta CARPETAS en $CONF"
   exit 1
@@ -166,7 +170,15 @@ if ! [[ "$REESCANEO_SEGUNDOS" =~ ^[0-9]+$ ]]; then
   echo "REESCANEO_SEGUNDOS tiene que ser un número de segundos (0 para desactivarlo)"
   exit 1
 fi
+if [ "$REENVIOS_SOLO_LAN" != si ] && [ "$REENVIOS_SOLO_LAN" != no ]; then
+  echo "REENVIOS_SOLO_LAN tiene que ser si o no"
+  exit 1
+fi
 HUELLA="$DB_DLNA/huella-lista"
+OPCIONES_CLAVE=()
+if [ -n "$CLAVE_SSH" ]; then
+  OPCIONES_CLAVE=(-o "IdentityFile=$CLAVE_SSH" -o IdentitiesOnly=yes)
+fi
 
 uso() {
   echo "Uso: medios on | off | estado | progreso | reescanear | buscar \"texto\" | actualizar | version | ayuda"
@@ -184,6 +196,36 @@ interfaz() {
 
 ip_local() {
   ip -4 -br addr show "$(interfaz)" 2>/dev/null | awk '{print $3}' | cut -d/ -f1
+}
+
+ssh_servidor() {
+  ssh -o BatchMode=yes -o ConnectTimeout=8 "${OPCIONES_CLAVE[@]}" "$USUARIO_SSH@$SERVIDOR" "$@"
+}
+
+reenviar_solo_lan() {
+  local p=$1 ip pid=""
+  trap '[ -n "$pid" ] && kill "$pid" 2>/dev/null; exit 0' TERM INT
+  while :; do
+    ip=$(ip_local)
+    if [ -n "$ip" ]; then
+      echo "Reenviando el puerto $p solo en $ip"
+      socat "TCP-LISTEN:$p,fork,reuseaddr,bind=$ip" "TCP:$SERVIDOR:$p" &
+      pid=$!
+    else
+      echo "Sin IP en la red local; espero a tenerla para reenviar el puerto $p"
+    fi
+    while :; do
+      sleep 10 &
+      wait $!
+      [ "$(ip_local)" = "$ip" ] || break
+      [ -z "$pid" ] || kill -0 "$pid" 2>/dev/null || break
+    done
+    if [ -n "$pid" ]; then
+      kill "$pid" 2>/dev/null
+      wait "$pid" 2>/dev/null
+      pid=""
+    fi
+  done
 }
 
 contar() {
@@ -222,9 +264,7 @@ listar_videos() {
   for e in $EXTENSIONES; do
     filtro+="${filtro:+ -o} -iname '*.$e'"
   done
-  # shellcheck disable=SC2029
-  ssh -o BatchMode=yes -o ConnectTimeout=8 "$USUARIO_SSH@$SERVIDOR" \
-    "cd $(printf '%q' "$RUTA_MEDIOS") && find$carpetas \\( -type f -o -type l \\) \\( $filtro \\)"
+  ssh_servidor "cd $(printf '%q' "$RUTA_MEDIOS") && find$carpetas \\( -type f -o -type l \\) \\( $filtro \\)"
 }
 
 huella_lista() {
@@ -316,9 +356,7 @@ carpetas_que_faltan() {
   for c in "${CARPETAS[@]}"; do
     lista+=" $(printf '%q' "$c")"
   done
-  # shellcheck disable=SC2029
-  ssh -o BatchMode=yes -o ConnectTimeout=8 "$USUARIO_SSH@$SERVIDOR" \
-    "cd $(printf '%q' "$RUTA_MEDIOS") 2>/dev/null || { echo $(printf '%q' "$RUTA_MEDIOS"); exit 0; }; for c in$lista; do [ -d \"\$c\" ] || echo \"\$c\"; done"
+  ssh_servidor "cd $(printf '%q' "$RUTA_MEDIOS") 2>/dev/null || { echo $(printf '%q' "$RUTA_MEDIOS"); exit 0; }; for c in$lista; do [ -d \"\$c\" ] || echo \"\$c\"; done"
 }
 
 comprobar_red() {
@@ -344,7 +382,7 @@ comprobar_red() {
 
 comprobar_servidor() {
   local faltan
-  if ! ssh -o BatchMode=yes -o ConnectTimeout=8 "$USUARIO_SSH@$SERVIDOR" true 2>/dev/null; then
+  if ! ssh_servidor true 2>/dev/null; then
     if command -v tailscale >/dev/null && ! tailscale status >/dev/null 2>&1; then
       mal "Tailscale no está conectado en este equipo"
     else
@@ -517,7 +555,7 @@ case "${1:-estado}" in
   _montar)
     mkdir -p "$PUNTO_MONTAJE"
     fusermount3 -uz "$PUNTO_MONTAJE" 2>/dev/null
-    exec sshfs -f \
+    exec sshfs -f "${OPCIONES_CLAVE[@]}" \
       -o ro,follow_symlinks,reconnect,ServerAliveInterval=15,ServerAliveCountMax=3,BatchMode=yes,kernel_cache,max_conns=4 \
       "$USUARIO_SSH@$SERVIDOR:$RUTA_MEDIOS" "$PUNTO_MONTAJE"
     ;;
@@ -545,6 +583,9 @@ case "${1:-estado}" in
     ;;
   _reenviar)
     [ -n "${2:-}" ] || exit 1
+    if [ "$REENVIOS_SOLO_LAN" = si ]; then
+      reenviar_solo_lan "$2"
+    fi
     exec socat "TCP-LISTEN:$2,fork,reuseaddr" "TCP:$SERVIDOR:$2"
     ;;
   _vigilar)

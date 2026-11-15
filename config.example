@@ -11,3 +11,5 @@ PUNTO_MONTAJE="$HOME/media-bridge"
 DB_DLNA="$HOME/.cache/media-bridge"
 EXTENSIONES="mkv mp4 avi m4v mov wmv mpg mpeg ts webm"
 REESCANEO_SEGUNDOS=3600
+REENVIOS_SOLO_LAN=no
+CLAVE_SSH=

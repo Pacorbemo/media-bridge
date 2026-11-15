@@ -122,6 +122,7 @@ Si usas Claude Code, Codex, Cursor u otro asistente, abre el repo con él y píd
 | `medios buscar "texto"` | Busca en el servidor sin tener que acertar el nombre exacto |
 | `medios actualizar` | Baja la última versión del repo y la vuelve a instalar, conservando tu configuración |
 | `medios version` | Qué versión tienes instalada |
+| `medios -h` | Qué hace cada comando; `medios ayuda on` (o `medios on -h`) da el detalle de uno |
 
 `medios buscar` no distingue mayúsculas, tildes ni separadores, acepta las palabras en cualquier orden y tolera erratas:
 

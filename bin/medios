@@ -4,7 +4,102 @@ set -uo pipefail
 CONF="${MEDIA_BRIDGE_CONFIG:-$HOME/.config/media-bridge/config}"
 SHARE="${MEDIA_BRIDGE_SHARE:-$HOME/.local/share/media-bridge}"
 
+ayuda() {
+  cat <<EOF
+Uso: medios <comando>
+
+  on                  monta las carpetas, arranca el DLNA y los reenvíos
+  off                 lo apaga todo
+  estado              qué está encendido y en qué direcciones (lo que hace sin comando)
+  progreso            cuántos vídeos lleva indexados el DLNA, en directo
+  reescanear          busca vídeos nuevos en el DLNA ahora mismo
+  buscar "texto"      busca una película o serie sin acertar el nombre exacto
+  actualizar          baja la última versión y la instala, sin tocar la configuración
+  version             la versión instalada
+  ayuda [comando]     esta ayuda, o más detalle de un comando (también -h y --help)
+
+Configuración: $CONF
+Más detalle de un comando: medios ayuda <comando> o medios <comando> -h
+EOF
+}
+
+ayuda_comando() {
+  case "$1" in
+    on)
+      echo "medios on"
+      echo "  Antes de arrancar comprueba la configuración y avisa de los problemas que encuentre."
+      echo "  Después monta las carpetas del servidor por sshfs, arranca el DLNA con el reescaneo"
+      echo "  automático y reenvía los puertos de REENVIOS. Termina enseñando el estado."
+      echo "  En Docker no se usa: se enciende con docker compose up -d."
+      ;;
+    off)
+      echo "medios off"
+      echo "  Para todos los servicios media-bridge-* y desmonta las carpetas."
+      echo "  El índice del DLNA se conserva. En Docker se apaga con docker compose down."
+      ;;
+    estado)
+      echo "medios estado"
+      echo "  Lista los servicios, las direcciones de los reenvíos en la red local,"
+      echo "  el nombre del DLNA y cada cuánto se busca si hay vídeos nuevos."
+      echo "  Es lo que hace medios sin ningún comando."
+      ;;
+    progreso)
+      echo "medios progreso"
+      echo "  Cuenta en directo los vídeos que lleva indexados el DLNA frente a los que hay"
+      echo "  en el servidor, con el ritmo por minuto y el tiempo que falta. Ctrl+C para salir."
+      ;;
+    reescanear)
+      echo "medios reescanear"
+      echo "  Reinicia el DLNA para que busque vídeos nuevos o borrados ya, sin esperar."
+      echo "  Corta lo que se esté viendo en la televisión."
+      echo "  Sin él, se reescanea solo cada REESCANEO_SEGUNDOS si hay cambios y nadie está viendo nada."
+      ;;
+    buscar)
+      echo "medios buscar \"texto\""
+      echo "  Busca en las CARPETAS del servidor por SSH, aunque el DLNA esté apagado."
+      echo "  No distingue mayúsculas, tildes ni separadores, acepta las palabras"
+      echo "  en cualquier orden y tolera erratas."
+      ;;
+    actualizar)
+      echo "medios actualizar"
+      echo "  Hace git pull en el clon desde el que se instaló y vuelve a ejecutar install.sh."
+      echo "  Conserva la configuración y no reinicia nada: lo encendido sigue con la versión"
+      echo "  anterior hasta medios off y medios on. En Docker se reconstruye la imagen."
+      ;;
+    version)
+      echo "medios version"
+      echo "  Muestra la versión instalada."
+      ;;
+    ayuda|-h|--help)
+      echo "medios ayuda [comando]"
+      echo "  Sin comando, la lista de comandos. Con uno, su detalle."
+      echo "  medios -h, medios --help y medios <comando> -h hacen lo mismo."
+      ;;
+    *)
+      echo "No conozco el comando \"$1\""
+      echo
+      ayuda
+      exit 1
+      ;;
+  esac
+}
+
+case "${2:-}" in
+  -h|--help)
+    ayuda_comando "$1"
+    exit 0
+    ;;
+esac
+
 case "${1:-}" in
+  -h|--help|ayuda)
+    if [ -n "${2:-}" ]; then
+      ayuda_comando "$2"
+    else
+      ayuda
+    fi
+    exit 0
+    ;;
   version)
     cat "$SHARE/VERSION" 2>/dev/null || echo "desconocida"
     exit 0
@@ -72,7 +167,8 @@ fi
 HUELLA="$DB_DLNA/huella-lista"
 
 uso() {
-  echo "Uso: medios on | off | estado | progreso | reescanear | buscar \"texto\" | actualizar | version"
+  echo "Uso: medios on | off | estado | progreso | reescanear | buscar \"texto\" | actualizar | version | ayuda"
+  echo "Qué hace cada uno: medios -h"
   exit 1
 }
 

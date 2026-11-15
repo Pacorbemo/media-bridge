@@ -80,7 +80,7 @@ Solo si el usuario lo pide o no quiere instalar paquetes. Explícale antes el av
 
 ## Estructura
 
-- `bin/medios`: el comando. Lee la configuración y también hace de punto de entrada de los servicios, con los subcomandos internos que empiezan por `_`. `version` y `actualizar` se resuelven antes de leer la configuración, así que funcionan aunque no exista.
+- `bin/medios`: el comando. Lee la configuración y también hace de punto de entrada de los servicios, con los subcomandos internos que empiezan por `_`. `version`, `actualizar` y la ayuda (`-h`, `--help`, `ayuda [comando]` y `<comando> -h`) se resuelven antes de leer la configuración, así que funcionan aunque no exista. Si añades o cambias un comando, actualiza también su texto en `ayuda` y `ayuda_comando`, el autocompletado y la tabla de uso del README.
 - `systemd/`: servicios de usuario `media-bridge-*` (montaje, DLNA, reenvíos y el vigilante de cambios `media-bridge-rescan`, que ejecuta `medios _vigilar`).
 - `lib/buscar.py`: la búsqueda aproximada de `medios buscar`.
 - `completions/`: autocompletado para zsh y bash.

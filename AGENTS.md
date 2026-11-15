@@ -87,7 +87,7 @@ Solo si el usuario lo pide o no quiere instalar paquetes. Explícale antes el av
 - `lib/buscar.py`: la búsqueda aproximada de `medios buscar`.
 - `completions/`: autocompletado para zsh y bash.
 - `install.sh` / `uninstall.sh`.
-- `VERSION`: la versión actual. Al publicar una nueva, súbela aquí, pasa lo de «Sin publicar» de `CHANGELOG.md` a un apartado con el número y la fecha, y crea la etiqueta `vX.Y.Z` sobre ese commit.
+- `VERSION`: la versión actual. Al publicar una nueva, súbela aquí, pasa lo de «Sin publicar» de `CHANGELOG.md` a un apartado `## X.Y.Z` (exactamente así, con la fecha en la línea siguiente: de ahí sale el texto de la versión en GitHub), y crea la etiqueta `vX.Y.Z` sobre ese commit.
 - `CHANGELOG.md`: cada cambio que note el usuario (comando, variable, comportamiento o arreglo) se añade en «Sin publicar», en el mismo commit que el cambio.
 - `tests/`: tests con `unittest`, sin dependencias. Ejecútalos con `python3 -m unittest discover -s tests -v` antes de subir. `test_medios.py` ejecuta `bin/medios` desde fuera con `MEDIA_BRIDGE_CONFIG` y `MEDIA_BRIDGE_SHARE` en un directorio temporal; no añadas tests que enciendan servicios, usen SSH o toquen systemd. Si cambias la ayuda, los mensajes de error, `buscar.py` o el entrypoint, ajusta o amplía su test.
 - `.github/workflows/tests.yml`: los tests en cada push y pull request. Crea una `/ssh/clave` falsa para que se ejecuten los del entrypoint, que en local se saltan.

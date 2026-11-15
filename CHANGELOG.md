@@ -12,6 +12,8 @@ Lo que cambia en cada versión de media-bridge. La versión instalada se ve con 
 - `medios ayuda problemas`: lo que suele fallar y cómo arreglarlo, de la televisión que no ve el DLNA al montaje colgado.
 - Página de manual: `man medios` lo junta todo. `install.sh` la genera a partir de la ayuda.
 - Sugerencias al equivocarse: `medios estdo` contesta `¿Querías decir "estado"?`, y lo mismo con las opciones, las partes de `medios logs` y los temas de `medios ayuda`.
+- **Página web local** con `medios web`, para usarlo sin terminal: estado, quién está conectado, avance del indexado, «Añadidos recientemente», QR de Jellyfin, buscador y botones para encender, apagar y reescanear. Escucha solo en `127.0.0.1` (`PUERTO_WEB`, 8787 por defecto), no necesita internet ni dependencias y sigue encendida tras `medios off`; se apaga con `medios web off`.
+- `medios estado` dice qué IPs tienen Jellyfin abierto por el reenvío.
 
 ### Corregido
 

@@ -1,0 +1,7 @@
+[Unit]
+Description=media-bridge: página web local para usarlo sin terminal
+
+[Service]
+ExecStart=%h/.local/bin/medios _web
+Restart=on-failure
+RestartSec=10

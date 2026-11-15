@@ -87,7 +87,7 @@ En Docker, `CLAVE_SSH` es la variable de `compose.yaml` que elige qué clave se 
 
 ## Diagnóstico rápido
 
-Primero `medios estado` (dice qué aparatos han encontrado el DLNA y cuáles están conectados) y `medios logs [montaje|dlna|reenvios|reescaneo]`.
+Primero `medios estado` (dice qué aparatos han encontrado el DLNA y cuáles están conectados) y `medios logs [montaje|dlna|reenvios|reescaneo|descubrimiento|web]`. Si el usuario prefiere no usar la terminal, `medios web` le abre una página con lo mismo y los botones de encender, apagar y reescanear.
 
 | Síntoma | Causa probable | Qué mirar |
 | --- | --- | --- |
@@ -100,10 +100,11 @@ Primero `medios estado` (dice qué aparatos han encontrado el DLNA y cuáles est
 ## Estructura
 
 - `bin/medios`: el comando. Lee la configuración y también hace de punto de entrada de los servicios, con los subcomandos internos que empiezan por `_`. `version`, `actualizar` y la ayuda (`-h`, `--help`, `ayuda [comando]` y `<comando> -h`) se resuelven antes de leer la configuración, así que funcionan aunque no exista. Si añades o cambias un comando, actualiza también su texto en `ayuda` y `ayuda_comando`, la lista `COMANDOS`, el autocompletado y la tabla de uso del README. Si añades una variable de configuración, añádela a `variables_config` (de ahí salen `medios ayuda config` y el manual; un test comprueba que no falte ninguna) y a `config.example`. Si encuentras un fallo típico nuevo, añádelo a `ayuda_problemas`. La página de manual no se escribe a mano: `install.sh` la genera con `medios _manual` a partir de esos mismos textos y la deja en `~/.local/share/man/man1/medios.1`.
-- `systemd/`: servicios de usuario `media-bridge-*` (montaje, DLNA, reenvíos, descubrimiento de Jellyfin y el vigilante de cambios `media-bridge-rescan`, que ejecuta `medios _vigilar`).
+- `systemd/`: servicios de usuario `media-bridge-*` (montaje, DLNA, reenvíos, descubrimiento de Jellyfin, el vigilante de cambios `media-bridge-rescan`, que ejecuta `medios _vigilar`, y la página `media-bridge-web`). `medios off` para todos menos `media-bridge-web`, que se para con `medios web off`.
 - `lib/buscar.py`: la búsqueda aproximada de `medios buscar`.
 - `lib/recientes.py`: rehace los enlaces de «Añadidos recientemente» en `DB_DLNA` con la lista que le pasa `medios _dlna` (fecha y ruta de cada vídeo de `RECIENTES_CARPETAS`). Guarda en `DB_DLNA/llegadas` cuándo vio cada vídeo por primera vez; si la lista llega vacía, no toca nada.
 - `lib/descubrimiento.py`: contesta al descubrimiento de las apps de Jellyfin (`who is JellyfinServer?` en 7359/udp) en nombre del servidor, con el mismo JSON que Jellyfin (`Address`, `Id`, `Name`, `EndpointAddress`). Lo arranca `medios _descubrimiento`, desde el servicio `media-bridge-descubrimiento` o desde el entrypoint de Docker. No contesta si no puede leer `/System/Info/Public`.
+- `lib/web.py`: la página de `medios web`, solo con la biblioteca estándar y el HTML, CSS y JS dentro. Escucha solo en `127.0.0.1:PUERTO_WEB` y no tiene lógica propia: lee el estado de `medios _estado-json` y las acciones ejecutan `medios on`, `off`, `reescanear` y `buscar`. Solo calcula el ritmo del indexado entre refrescos (el total lo pide a `medios _total-videos`). Las peticiones exigen `Host` local, un token por arranque incrustado en la página y, las acciones, POST con `Origin` de la propia página, para que otra web abierta en el navegador no pueda encender ni apagar nada. No la hagas escuchar en la red local: es la red de otra persona.
 - `completions/`: autocompletado para zsh y bash.
 - `install.sh` / `uninstall.sh`.
 - `CLAUDE.md` y `GEMINI.md`: solo importan este fichero para Claude Code y para Gemini/Antigravity. Las instrucciones se cambian aquí, no en ellos.

@@ -12,26 +12,27 @@ from urllib.parse import urlsplit
 
 ANFITRIONES = {"127.0.0.1", "localhost", "::1"}
 ACCIONES = {
-    "encender": (["on"], 240),
-    "apagar": (["off"], 90),
-    "reescanear": (["reescanear"], 120),
+    "encender": ([["on"]], 240),
+    "apagar": ([["off"]], 90),
+    "reescanear": ([["reescanear"]], 120),
+    "aplicar": ([["off"], ["on"]], 330),
 }
-MAXIMO_CUERPO = 4096
+MAXIMO_CUERPO = 16384
 
 
 def registrar(texto):
     print(texto, flush=True)
 
 
-def ejecutar(medios, argumentos, limite):
+def ejecutar(medios, argumentos, limite, entrada=None):
     try:
         r = subprocess.run(
             [medios, *argumentos],
+            input=entrada if entrada is not None else "",
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
             text=True,
             timeout=limite,
-            stdin=subprocess.DEVNULL,
         )
     except subprocess.TimeoutExpired as e:
         parcial = e.stdout or ""
@@ -152,14 +153,46 @@ class Servidor(ThreadingHTTPServer):
         return datos
 
     def accionar(self, nombre):
-        argumentos, limite = ACCIONES[nombre]
+        ordenes, limite = ACCIONES[nombre]
         if not self.cerrojo_accion.acquire(blocking=False):
             return 409, {"error": f"Espera: todavía se está ejecutando «{self.accion}»"}
         try:
             self.accion = nombre
             registrar(f"Acción: {nombre}")
-            rc, salida = ejecutar(self.medios, argumentos, limite)
+            salidas = []
+            for argumentos in ordenes:
+                rc, salida = ejecutar(self.medios, argumentos, limite)
+                salidas.append(salida)
+                if rc != 0:
+                    break
             registrar(f"Acción {nombre} terminada con código {rc}")
+            return 200, {"codigo": rc, "salida": "\n".join(salidas)}
+        finally:
+            self.accion = None
+            self.cerrojo_accion.release()
+
+    def leer_json(self, argumentos):
+        rc, salida = ejecutar(self.medios, argumentos, 30)
+        if rc != 0:
+            return {"error": salida.strip() or f"medios terminó con código {rc}"}
+        try:
+            return json.loads(salida)
+        except ValueError:
+            return {"error": "No entiendo lo que devuelve medios: " + salida.strip()[:500]}
+
+    def carpetas(self):
+        rc, salida = ejecutar(self.medios, ["_config-carpetas"], 30)
+        if rc != 0:
+            return {"error": "No puedo ver las carpetas del servidor: " + (salida.strip() or f"código {rc}")}
+        return {"carpetas": [c for c in salida.splitlines() if c]}
+
+    def guardar_config(self, cambios):
+        if not self.cerrojo_accion.acquire(blocking=False):
+            return 409, {"error": f"Espera: todavía se está ejecutando «{self.accion}»"}
+        try:
+            self.accion = "guardar"
+            registrar("Guardando la configuración: " + ", ".join(cambios))
+            rc, salida = ejecutar(self.medios, ["_config-guardar"], 60, json.dumps({"cambios": cambios}))
             return 200, {"codigo": rc, "salida": salida}
         finally:
             self.accion = None
@@ -220,6 +253,12 @@ class Pagina(BaseHTTPRequestHandler):
             if not self.token_valido():
                 return self.responder(403, {"error": "Falta el permiso de la página; recárgala"})
             return self.responder(200, self.server.estado())
+        if ruta in ("/api/config", "/api/carpetas"):
+            if not self.token_valido():
+                return self.responder(403, {"error": "Falta el permiso de la página; recárgala"})
+            if ruta == "/api/config":
+                return self.responder(200, self.server.leer_json(["_config-json"]))
+            return self.responder(200, self.server.carpetas())
         return self.responder(404, {"error": "No existe"})
 
     def do_HEAD(self):
@@ -251,6 +290,12 @@ class Pagina(BaseHTTPRequestHandler):
             if not isinstance(texto, str) or not texto.strip() or len(texto) > 200:
                 return self.responder(400, {"error": "Escribe qué quieres buscar"})
             return self.responder(200, self.server.buscar(texto.strip()))
+        if ruta == "/api/config":
+            cambios = cuerpo.get("cambios")
+            if not isinstance(cambios, dict) or not cambios:
+                return self.responder(400, {"error": "No has cambiado nada"})
+            codigo, respuesta = self.server.guardar_config(cambios)
+            return self.responder(codigo, respuesta)
         nombre = ruta.removeprefix("/api/")
         if ruta.startswith("/api/") and nombre in ACCIONES:
             codigo, respuesta = self.server.accionar(nombre)
@@ -281,6 +326,7 @@ HTML = r"""<!doctype html>
   --pastilla-bien: #e2f4ea;
   --pastilla-mal: #fbe5e3;
   --pastilla-neutra: #eceef2;
+  --pastilla-aviso: #fdf1dc;
 }
 @media (prefers-color-scheme: dark) {
   :root {
@@ -297,6 +343,7 @@ HTML = r"""<!doctype html>
     --pastilla-bien: #183326;
     --pastilla-mal: #3a1d1b;
     --pastilla-neutra: #2a2e36;
+    --pastilla-aviso: #3a2a12;
   }
 }
 * { box-sizing: border-box; }
@@ -345,7 +392,7 @@ button:disabled { opacity: .5; cursor: default; }
 ul, ol { margin: 0; padding-left: 20px; }
 li { margin: 2px 0; overflow-wrap: anywhere; }
 .lista-limpia { list-style: none; padding: 0; }
-.fila { display: flex; justify-content: space-between; gap: 8px; padding: 4px 0; border-bottom: 1px solid var(--borde); }
+.fila { display: flex; justify-content: space-between; align-items: center; gap: 8px; padding: 4px 0; border-bottom: 1px solid var(--borde); }
 .fila:last-child { border-bottom: 0; }
 .suave { color: var(--suave); }
 .bien { color: var(--bien); }
@@ -368,8 +415,8 @@ pre {
 #qr { max-width: 220px; margin-top: 10px; background: #fff; border-radius: 8px; padding: 4px; }
 #qr svg { display: block; width: 100%; height: auto; }
 #error { background: var(--pastilla-mal); color: var(--mal); border-radius: 8px; padding: 10px 14px; margin-bottom: 16px; white-space: pre-wrap; }
-form { display: flex; gap: 8px; }
-input[type=search] {
+#buscador { display: flex; gap: 8px; }
+input[type=search], .campo input[type=text], .campo input[type=number] {
   flex: 1;
   min-width: 0;
   font: inherit;
@@ -390,6 +437,35 @@ dialog {
 }
 dialog::backdrop { background: rgba(0, 0, 0, .45); }
 dialog .botones { justify-content: flex-end; margin: 16px 0 0; }
+.campo input[type=text], .campo input[type=number] { flex: none; width: 100%; max-width: 420px; }
+.aviso-caja {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  background: var(--pastilla-aviso);
+  border: 1px solid var(--aviso);
+  border-radius: 12px;
+  padding: 10px 14px;
+  margin-bottom: 16px;
+}
+.aviso-caja span { flex: 1 1 240px; }
+.cabecera-tarjeta { display: flex; justify-content: space-between; align-items: center; gap: 8px; margin-bottom: 6px; }
+.cabecera-tarjeta h2 { margin: 0; }
+fieldset { border: 0; border-top: 1px solid var(--borde); margin: 14px 0 0; padding: 10px 0 0; min-width: 0; }
+legend { font-weight: 600; padding: 0 6px 0 0; }
+.campo { padding: 8px 0; }
+.campo.apagado { opacity: .55; }
+.nombre { font: 12px/1.4 ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace; color: var(--suave); }
+.campo.cambiado .nombre { color: var(--acento); }
+.ayuda { color: var(--suave); font-size: .9rem; margin: 2px 0 6px; }
+.opciones { display: flex; flex-wrap: wrap; gap: 2px 18px; }
+.opcion { display: flex; align-items: flex-start; gap: 8px; padding: 7px 0; cursor: pointer; }
+.opcion input { margin-top: 2px; }
+input[type=checkbox] { width: 20px; height: 20px; margin: 0; flex: none; accent-color: var(--acento); }
+dl { display: grid; grid-template-columns: minmax(0, max-content) minmax(0, 1fr); gap: 4px 12px; margin: 10px 0 0; }
+dd { margin: 0; overflow-wrap: anywhere; }
+summary { cursor: pointer; color: var(--suave); margin-top: 14px; min-height: 32px; }
 [hidden] { display: none !important; }
 </style>
 </head>
@@ -406,6 +482,10 @@ dialog .botones { justify-content: flex-end; margin: 16px 0 0; }
     <button id="apagar" class="peligro">Apagar</button>
     <button id="reescanear">Reescanear</button>
     <span id="en-marcha" class="suave" hidden></span>
+  </div>
+  <div id="pendiente" class="aviso-caja" hidden>
+    <span>Has cambiado la configuración y todavía no se ha aplicado: lo encendido sigue con la anterior.</span>
+    <button id="aplicar" class="principal">Aplicar ahora</button>
   </div>
   <section id="caja-salida" class="tarjeta ancha" hidden>
     <h2 id="titulo-salida">Resultado</h2>
@@ -442,6 +522,25 @@ dialog .botones { justify-content: flex-end; margin: 16px 0 0; }
         <button type="submit" class="principal">Buscar</button>
       </form>
       <pre id="resultados" hidden></pre>
+    </section>
+    <section class="tarjeta ancha" id="caja-config">
+      <div class="cabecera-tarjeta">
+        <h2>Configuración</h2>
+        <button id="editar" aria-expanded="false">Editar</button>
+      </div>
+      <p class="suave" id="config-intro">Qué carpetas se publican, los puertos y las opciones. Lo que cambies se guarda en el fichero de configuración y se aplica al volver a encender.</p>
+      <form id="formulario" hidden novalidate>
+        <div id="campos"></div>
+        <details>
+          <summary>Conexión con el servidor (solo se cambia a mano en el fichero)</summary>
+          <dl id="fijas"></dl>
+        </details>
+        <div class="botones" id="botones-config">
+          <button type="submit" class="principal" id="guardar" disabled>Guardar</button>
+          <button type="button" id="descartar" disabled>Descartar cambios</button>
+          <span id="contador" class="suave"></span>
+        </div>
+      </form>
     </section>
   </div>
 </main>
@@ -616,9 +715,13 @@ function pintar(d) {
     $("en-marcha").hidden = !d.accion;
     $("en-marcha").textContent = d.accion ? "En marcha: " + d.accion + "…" : "";
   }
+  const pendiente = !!(d.encendido && d.config && d.config.sin_aplicar);
+  $("pendiente").hidden = !pendiente;
+  $("encender").className = d.encendido ? "" : "principal";
   $("apagar").disabled = ocupado || !!d.accion || !d.encendido;
   $("reescanear").disabled = ocupado || !!d.accion || !n.activo;
   $("encender").disabled = ocupado || !!d.accion;
+  $("aplicar").disabled = ocupado || !!d.accion;
 }
 
 async function refrescar() {
@@ -660,6 +763,7 @@ function confirmar(pregunta, advertencia, boton) {
 }
 
 const TEXTOS = {
+  aplicar: ["Aplicando la configuración (apagar y encender)…", "Aplicar la configuración"],
   encender: ["Encendiendo…", "Encender"],
   apagar: ["Apagando…", "Apagar"],
   reescanear: ["Reescaneando (tarda unos 20 s)…", "Reescanear"],
@@ -678,8 +782,15 @@ async function accion(nombre) {
       : "";
     if (!(await confirmar("¿Reescanear ahora? El DLNA se reinicia para buscar vídeos nuevos.", aviso, "Reescanear"))) return;
   }
+  if (ultimo && nombre === "aplicar") {
+    const quien = [...new Set([...conectadosDlna(ultimo), ...ultimo.jellyfin.conexiones])];
+    const avisos = [];
+    if (quien.length) avisos.push("Hay alguien conectado ahora (" + quien.join(", ") + "): se cortará lo que esté viendo.");
+    if (ultimo.config && ultimo.config.reindexara) avisos.push(AVISO_REINDEXAR);
+    if (!(await confirmar("¿Aplicar la configuración? Se apaga y se vuelve a encender todo.", avisos.join(" "), "Aplicar"))) return;
+  }
   ocupado = true;
-  for (const b of ["encender", "apagar", "reescanear"]) $(b).disabled = true;
+  for (const b of ["encender", "apagar", "reescanear", "aplicar"]) $(b).disabled = true;
   $("en-marcha").hidden = false;
   $("en-marcha").textContent = TEXTOS[nombre][0];
   const r = await api("/api/" + nombre, {});
@@ -696,6 +807,7 @@ async function accion(nombre) {
 $("encender").addEventListener("click", () => accion("encender"));
 $("apagar").addEventListener("click", () => accion("apagar"));
 $("reescanear").addEventListener("click", () => accion("reescanear"));
+$("aplicar").addEventListener("click", () => accion("aplicar"));
 
 $("buscador").addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -706,6 +818,254 @@ $("buscador").addEventListener("submit", async (e) => {
   pre.textContent = "Buscando en el servidor…";
   const r = await api("/api/buscar", { texto });
   pre.textContent = r.error || r.salida || "Sin resultados";
+});
+
+const AVISO_REINDEXAR = "Has cambiado CARPETAS o RECIENTES: el DLNA indexará todo de nuevo. Con miles de vídeos tarda un buen rato, y mientras tanto la televisión no lo ve entero.";
+const GRUPOS = [
+  ["Carpetas que se publican", ["CARPETAS"]],
+  ["DLNA para la televisión", ["DLNA", "NOMBRE_DLNA", "PUERTO_DLNA", "REESCANEO_SEGUNDOS", "EXTENSIONES"]],
+  ["Añadidos recientemente", ["RECIENTES", "RECIENTES_CANTIDAD", "RECIENTES_CARPETAS"]],
+  ["Reenvíos y Jellyfin", ["REENVIOS", "REENVIOS_SOLO_LAN", "PUERTO_JELLYFIN", "DESCUBRIMIENTO_JELLYFIN"]],
+  ["Red", ["INTERFAZ"]],
+];
+const DEPENDE = {
+  NOMBRE_DLNA: "DLNA", PUERTO_DLNA: "DLNA", REESCANEO_SEGUNDOS: "DLNA", EXTENSIONES: "DLNA",
+  RECIENTES: "DLNA", RECIENTES_CANTIDAD: "RECIENTES", RECIENTES_CARPETAS: "RECIENTES",
+};
+const LIMITES = { puerto: [1, 65535], segundos: [0, 10000000], cantidad: [1, 1000] };
+let config = null;
+let servidor = null;
+let original = {};
+
+function normalizar(v, valor) {
+  if (v.tipo === "carpetas") {
+    if (valor === null || valor === undefined || valor === "") return [];
+    return Array.isArray(valor) ? valor.filter((c) => c) : [valor];
+  }
+  if (Array.isArray(valor)) valor = valor.join(" ");
+  if (valor === null || valor === undefined) valor = v.defecto || "";
+  if (v.tipo === "puertos" || v.tipo === "extensiones") return valor.split(/[\s,]+/).filter((x) => x).join(" ");
+  return String(valor).trim();
+}
+
+function variable(nombre) {
+  return config.variables.find((v) => v.nombre === nombre);
+}
+
+function marcadas(nombre) {
+  return [...document.querySelectorAll('input[name="' + nombre + '"]:checked')].map((c) => c.value);
+}
+
+function leerCampo(v) {
+  if (v.tipo === "carpetas") return marcadas(v.nombre);
+  const e = $("c-" + v.nombre);
+  if (v.tipo === "si_no") return e.checked ? "si" : "no";
+  return normalizar(v, e.value);
+}
+
+function cambios() {
+  const lista = {};
+  for (const v of config.variables) {
+    if (!v.tipo) continue;
+    const valor = leerCampo(v);
+    if (JSON.stringify(valor) !== JSON.stringify(original[v.nombre])) lista[v.nombre] = valor;
+  }
+  return lista;
+}
+
+function opcion(nombre, valor, marcada, nota) {
+  const label = el("label", "opcion");
+  const c = el("input");
+  c.type = "checkbox";
+  c.name = nombre;
+  c.value = valor;
+  c.checked = marcada;
+  label.append(c, el("span", "", valor));
+  if (nota) label.append(el("span", "aviso", nota));
+  return label;
+}
+
+function pintarRecientesCarpetas() {
+  const v = variable("RECIENTES_CARPETAS");
+  if (!v) return;
+  const caja = $("o-RECIENTES_CARPETAS");
+  const antes = caja.dataset.listo ? marcadas(v.nombre) : original[v.nombre];
+  caja.dataset.listo = "1";
+  caja.replaceChildren();
+  const posibles = marcadas("CARPETAS");
+  for (const c of posibles) caja.append(opcion(v.nombre, c, antes.includes(c)));
+  if (!posibles.length) caja.append(el("span", "suave", "Marca antes alguna carpeta arriba"));
+}
+
+function actualizarFormulario() {
+  if (!config) return;
+  pintarRecientesCarpetas();
+  const lista = cambios();
+  for (const v of config.variables) {
+    if (!v.tipo) continue;
+    $("f-" + v.nombre).classList.toggle("cambiado", v.nombre in lista);
+    const padre = DEPENDE[v.nombre];
+    if (padre && variable(padre)) {
+      const abuelo = DEPENDE[padre] && variable(DEPENDE[padre]);
+      const apagado = leerCampo(variable(padre)) === "no" || (!!abuelo && leerCampo(abuelo) === "no");
+      $("f-" + v.nombre).classList.toggle("apagado", apagado);
+    }
+  }
+  const n = Object.keys(lista).length;
+  $("contador").className = "suave";
+  $("contador").textContent = n ? (n === 1 ? "1 cambio sin guardar" : n + " cambios sin guardar") : "";
+  $("guardar").disabled = !n;
+  $("descartar").disabled = !n;
+}
+
+function campo(v) {
+  const caja = el("div", "campo");
+  caja.id = "f-" + v.nombre;
+  const valor = original[v.nombre];
+  const nombre = el("div", "nombre", v.nombre + (v.fijada ? "" : " · por defecto"));
+  const texto = v.texto.replace(/ \(si o no\)/, "").replace(/^Con si, (.)/, (_, c) => c.toUpperCase());
+  if (v.tipo === "si_no") {
+    const label = el("label", "opcion");
+    const c = el("input");
+    c.type = "checkbox";
+    c.id = "c-" + v.nombre;
+    c.checked = valor === "si";
+    label.append(c, el("span", "", texto));
+    caja.append(nombre, label);
+    return caja;
+  }
+  caja.append(nombre);
+  const ayuda = el("div", "ayuda", texto);
+  caja.append(ayuda);
+  if (v.tipo === "carpetas") {
+    const opciones = el("div", "opciones");
+    opciones.id = "o-" + v.nombre;
+    if (v.nombre === "CARPETAS") {
+      const delServidor = servidor && servidor.carpetas ? servidor.carpetas : [];
+      for (const c of [...new Set([...valor, ...delServidor])]) {
+        const falta = servidor && servidor.carpetas && !delServidor.includes(c);
+        opciones.append(opcion(v.nombre, c, valor.includes(c), falta ? "no está en el servidor" : ""));
+      }
+      if (servidor && servidor.error) caja.append(el("div", "aviso", servidor.error));
+    } else {
+      ayuda.textContent = texto.replace(/ Vacío para todas\.$/, "") + " Sin marcar ninguna, salen de todas.";
+    }
+    caja.append(opciones);
+    return caja;
+  }
+  const entrada = el("input");
+  entrada.id = "c-" + v.nombre;
+  entrada.setAttribute("aria-label", v.nombre);
+  if (LIMITES[v.tipo]) {
+    entrada.type = "number";
+    entrada.inputMode = "numeric";
+    [entrada.min, entrada.max] = LIMITES[v.tipo];
+  } else {
+    entrada.type = "text";
+    entrada.autocomplete = "off";
+    entrada.spellcheck = false;
+    if (v.defecto) entrada.placeholder = v.defecto;
+  }
+  entrada.value = valor;
+  caja.append(entrada);
+  return caja;
+}
+
+function pintarConfig() {
+  const campos = $("campos");
+  campos.replaceChildren();
+  original = {};
+  for (const v of config.variables) if (v.tipo) original[v.nombre] = normalizar(v, v.valor);
+  const grupos = GRUPOS.map(([t, nombres]) => [t, nombres.filter((n) => variable(n) && variable(n).tipo)]);
+  const resto = config.variables.filter((v) => v.tipo && !GRUPOS.some(([, ns]) => ns.includes(v.nombre))).map((v) => v.nombre);
+  if (resto.length) grupos.push(["Otras", resto]);
+  for (const [titulo, nombres] of grupos) {
+    if (!nombres.length) continue;
+    const fs = el("fieldset");
+    fs.append(el("legend", "", titulo));
+    for (const n of nombres) {
+      fs.append(campo(variable(n)));
+    }
+    campos.append(fs);
+  }
+  const fijas = $("fijas");
+  fijas.replaceChildren();
+  for (const v of config.variables) {
+    if (v.tipo) continue;
+    let valor = v.valor;
+    if (Array.isArray(valor)) valor = valor.join(", ");
+    if (!v.fijada) valor = v.defecto ? v.defecto + " (por defecto)" : "(vacío)";
+    else if (valor === "") valor = "(vacío)";
+    const dt = el("dt");
+    dt.append(el("span", "nombre", v.nombre));
+    fijas.append(dt, el("dd", "", valor));
+  }
+  const dt = el("dt");
+  dt.append(el("span", "nombre", "Fichero"));
+  fijas.append(dt, el("dd", "", config.fichero));
+  delete $("o-RECIENTES_CARPETAS")?.dataset.listo;
+  actualizarFormulario();
+}
+
+async function cargarConfig() {
+  const [c, s] = await Promise.all([api("/api/config"), servidor ? Promise.resolve(servidor) : api("/api/carpetas")]);
+  servidor = s;
+  if (c.error) {
+    pintarSalida("Configuración", c.error);
+    return false;
+  }
+  if (!c.existe) {
+    pintarSalida("Configuración", "Todavía no hay configuración en " + c.fichero + ". Créala a mano desde config.example.");
+    return false;
+  }
+  config = c;
+  pintarConfig();
+  return true;
+}
+
+$("editar").addEventListener("click", async () => {
+  const abrir = $("formulario").hidden;
+  if (abrir) {
+    $("editar").disabled = true;
+    $("editar").textContent = "Cargando…";
+    const ok = await cargarConfig();
+    $("editar").disabled = false;
+    if (!ok) {
+      $("editar").textContent = "Editar";
+      return;
+    }
+  }
+  $("formulario").hidden = !abrir;
+  $("config-intro").hidden = abrir;
+  $("editar").textContent = abrir ? "Cerrar" : "Editar";
+  $("editar").setAttribute("aria-expanded", String(abrir));
+});
+
+$("formulario").addEventListener("input", actualizarFormulario);
+$("formulario").addEventListener("change", actualizarFormulario);
+$("descartar").addEventListener("click", pintarConfig);
+
+$("formulario").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const lista = cambios();
+  if (!Object.keys(lista).length) return;
+  const reindexan = config.reindexan.filter((n) => n in lista);
+  if (reindexan.length && ultimo && ultimo.dlna.previsto) {
+    const texto = "Has cambiado " + reindexan.join(" y ") + ": cuando lo apliques, el DLNA indexará todo de nuevo. Con miles de vídeos tarda un buen rato, y mientras tanto la televisión no lo ve entero.";
+    if (!(await confirmar("¿Guardar los cambios?", texto, "Guardar"))) return;
+  }
+  $("guardar").disabled = true;
+  $("contador").textContent = "Guardando…";
+  const r = await api("/api/config", { cambios: lista });
+  const bien = !r.error && r.codigo === 0;
+  let salida = (r.error || r.salida || "").replace(/\s+$/, "");
+  if (bien && ultimo && !ultimo.encendido) salida += "\nSe usará la próxima vez que enciendas.";
+  pintarSalida(bien ? "Configuración guardada" : "La configuración no se ha guardado", salida);
+  if (bien) await cargarConfig();
+  else actualizarFormulario();
+  $("contador").textContent = bien ? "Guardado ✔ (detalles arriba)" : salida.split("\n")[0];
+  $("contador").className = bien ? "bien" : "mal";
+  await refrescar();
 });
 
 document.addEventListener("visibilitychange", refrescar);

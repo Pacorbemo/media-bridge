@@ -109,13 +109,13 @@ class AyudaConfig(Medios):
         self.assertIn(f"PUNTO_MONTAJE = {self.dir}/media-bridge\n", out)
 
     def test_con_configuracion_da_sus_valores(self):
-        config = CONFIG_BUENA + "NOMBRE_DLNA=GMK\nPUERTO_DLNA=8200\n"
+        config = CONFIG_BUENA + "NOMBRE_DLNA=Salón\nPUERTO_DLNA=8200\n"
         rc, out = self.medios("ayuda", "config", config=config)
         self.assertEqual(rc, 0)
         self.assertIn(f"Tu configuración está en {self.conf}", out)
         self.assertIn("SERVIDOR = 100.64.0.10\n", out)
         self.assertIn('CARPETAS = ("Movies" "Tv Shows")\n', out)
-        self.assertIn("NOMBRE_DLNA = GMK  (por defecto: media-bridge)", out)
+        self.assertIn("NOMBRE_DLNA = Salón  (por defecto: media-bridge)", out)
         self.assertIn("PUERTO_DLNA = 8200\n", out)
         self.assertIn("DLNA = si  (por defecto)", out)
         self.assertIn('INTERFAZ = ""  (por defecto)', out)
@@ -182,7 +182,7 @@ class Manual(Medios):
 
     def test_no_depende_de_la_configuracion(self):
         sin = self.manual()
-        self.conf.write_text(CONFIG_BUENA + "NOMBRE_DLNA=GMK\n")
+        self.conf.write_text(CONFIG_BUENA + "NOMBRE_DLNA=Salón\n")
         self.assertEqual(self.manual(), sin)
 
     def test_solo_usa_macros_conocidas(self):

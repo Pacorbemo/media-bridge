@@ -238,6 +238,75 @@ class Acciones(Pagina):
         self.assertEqual(self.llamadas(), [])
 
 
+class Configuracion(Pagina):
+    def test_leer_config(self):
+        self.responder("_config-json", json.dumps({"fichero": "/x/config", "existe": True, "variables": []}))
+        estado, datos = self.json("GET", "/api/config")
+        self.assertEqual(estado, 200)
+        self.assertEqual(datos["fichero"], "/x/config")
+        self.assertEqual(self.llamadas(), ["_config-json"])
+
+    def test_carpetas_del_servidor(self):
+        self.responder("_config-carpetas", "Movies\nTv Shows\n")
+        _, datos = self.json("GET", "/api/carpetas")
+        self.assertEqual(datos, {"carpetas": ["Movies", "Tv Shows"]})
+        self.responder("_config-carpetas", "ssh: connect to host\n", 255)
+        _, datos = self.json("GET", "/api/carpetas")
+        self.assertIn("No puedo ver las carpetas del servidor", datos["error"])
+
+    def test_config_sin_token(self):
+        for metodo, ruta in (("GET", "/api/config"), ("GET", "/api/carpetas"), ("POST", "/api/config")):
+            with self.subTest(ruta=ruta):
+                estado, _ = self.json(metodo, ruta, {"cambios": {"DLNA": "no"}} if metodo == "POST" else None, token=None)
+                self.assertEqual(estado, 403)
+        estado, _ = self.json("POST", "/api/config", {"cambios": {"DLNA": "no"}}, origen="http://malvado.ejemplo")
+        self.assertEqual(estado, 403)
+        self.assertEqual(self.llamadas(), [])
+
+    def test_guardar_pasa_los_cambios_a_medios(self):
+        (self.dir / "medios").write_text(MEDIOS_FALSO.replace('[ -f "$d/salida-$1" ]', '[ "$1" = _config-guardar ] && cat > "$d/entrada"\n[ -f "$d/salida-$1" ]'))
+        self.responder("_config-guardar", "Guardado: DLNA\n")
+        estado, datos = self.json("POST", "/api/config", {"cambios": {"DLNA": "no"}})
+        self.assertEqual(estado, 200)
+        self.assertEqual(datos, {"codigo": 0, "salida": "Guardado: DLNA\n"})
+        self.assertEqual(json.loads((self.dir / "entrada").read_text()), {"cambios": {"DLNA": "no"}})
+
+    def test_guardar_sin_cambios(self):
+        for cuerpo in ({}, {"cambios": {}}, {"cambios": ["DLNA"]}):
+            with self.subTest(cuerpo=cuerpo):
+                estado, _ = self.json("POST", "/api/config", cuerpo)
+                self.assertEqual(estado, 400)
+        self.assertEqual(self.llamadas(), [])
+
+    def test_no_guarda_durante_una_accion(self):
+        self.servidor.cerrojo_accion.acquire()
+        self.servidor.accion = "encender"
+        try:
+            estado, _ = self.json("POST", "/api/config", {"cambios": {"DLNA": "no"}})
+        finally:
+            self.servidor.cerrojo_accion.release()
+        self.assertEqual(estado, 409)
+        self.assertEqual(self.llamadas(), [])
+
+    def test_aplicar_apaga_y_enciende(self):
+        self.responder("off", "apagado\n")
+        self.responder("on", "encendido\n")
+        _, datos = self.json("POST", "/api/aplicar", {})
+        self.assertEqual(datos, {"codigo": 0, "salida": "apagado\n\nencendido\n"})
+        self.assertEqual(self.llamadas(), ["off", "on"])
+
+    def test_aplicar_no_enciende_si_falla_al_apagar(self):
+        self.responder("off", "no puedo\n", 1)
+        _, datos = self.json("POST", "/api/aplicar", {})
+        self.assertEqual(datos["codigo"], 1)
+        self.assertEqual(self.llamadas(), ["off"])
+
+    def test_pagina_con_panel(self):
+        _, _, html = self.peticion("GET", "/", token=None, origen=None)
+        for id_ in ('id="caja-config"', 'id="formulario"', 'id="aplicar"', 'id="pendiente"'):
+            self.assertIn(id_, html)
+
+
 class Progreso(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()

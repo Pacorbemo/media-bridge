@@ -201,6 +201,11 @@ Se enciende con `medios on` y se apaga con `medios off`. Para desactivarlo, `DES
 - El QR de Jellyfin, si `qrencode` está instalado. Si no, solo la dirección: la página no instala nada.
 - Un buscador que hace lo mismo que `medios buscar`.
 - Los botones **Encender** (enseña las comprobaciones de `medios on`, con sus ✘ y avisos), **Apagar** y **Reescanear**. Los dos últimos piden confirmación y avisan si hay alguien conectado, porque cortan lo que se esté viendo.
+- **Configuración**, para cambiarla sin abrir el fichero:
+  - casillas con las carpetas que hay de verdad en el servidor, para `CARPETAS` y `RECIENTES_CARPETAS`;
+  - casillas para las opciones de sí o no, y campos para los puertos, el nombre del DLNA y lo demás.
+
+  Antes de guardar, `medios` comprueba los valores igual que al encender. Si están bien, guarda una copia de la anterior en `config.bak` y deja el resto del fichero como estaba. Lo guardado se usa al volver a encender: si ya estaba encendido, la página lo avisa y ofrece **Aplicar ahora**, que apaga y vuelve a encender. Antes avisa si hay alguien viendo algo o si el DLNA va a indexar todo de nuevo (al cambiar `CARPETAS` o `RECIENTES`). La conexión con el servidor (`SERVIDOR`, `USUARIO_SSH`, `RUTA_MEDIOS`, `CLAVE_SSH`, `PUNTO_MONTAJE`, `DB_DLNA` y `PUERTO_WEB`) solo se enseña: si quedara mal, la página no podría arreglarla.
 
 Se refresca sola cada 5 segundos y funciona sin internet. Escucha solo en `127.0.0.1:PUERTO_WEB` (8787 por defecto): nadie de la red local la ve, ni siquiera la televisión. Para abrirla desde otro equipo de tu tailnet, haz un túnel SSH y abre `http://127.0.0.1:8787` en él:
 

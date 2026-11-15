@@ -284,6 +284,8 @@ ayuda_comando() {
       echo "  Abre en el navegador una página para usar media-bridge sin terminal: qué está encendido,"
       echo "  quién está conectado, el avance del indexado, Añadidos recientemente, el QR de Jellyfin,"
       echo "  el buscador y los botones Encender, Apagar y Reescanear."
+      echo "  También cambia la configuración: comprueba los valores antes de guardar, deja una copia"
+      echo "  en config.bak y ofrece Aplicar ahora (apagar y encender) si ya estaba encendido."
       echo "  Escucha solo en este equipo, en http://127.0.0.1:PUERTO_WEB (8787 por defecto):"
       echo "  nadie de la red local la ve. Desde otro equipo, con un túnel:"
       echo "  ssh -L 8787:127.0.0.1:8787 <este equipo>"
@@ -844,6 +846,48 @@ aparatos_json() {
   done
 }
 
+config_sin_aplicar() {
+  local u t inicio="" cambio
+  en_docker && return 1
+  cambio=$(stat -c %Y "$CONF" 2>/dev/null) || return 1
+  while read -r u; do
+    t=$(systemctl --user show -P ActiveEnterTimestamp --timestamp=unix "$u" 2>/dev/null)
+    t=${t#@}
+    [[ "$t" =~ ^[0-9]+$ ]] || continue
+    if [ -z "$inicio" ] || [ "$t" -lt "$inicio" ]; then
+      inicio=$t
+    fi
+  done < <(systemctl --user list-units --state=active --plain --no-legend 'media-bridge-*' | awk '$1 != "media-bridge-web.service" {print $1}')
+  [ -n "$inicio" ] && [ "$cambio" -gt "$inicio" ]
+}
+
+config_cruda() {
+  local nombres
+  mapfile -t nombres < <(variables_config | cut -d'|' -f1)
+  [ -f "$CONF" ] || return 0
+  # shellcheck disable=SC2016
+  env -i HOME="$HOME" PATH="$PATH" bash -c '
+    set +u
+    conf=$1
+    shift
+    source "$conf" >/dev/null 2>&1
+    for n in "$@"; do
+      d=$(declare -p "$n" 2>/dev/null) || continue
+      if [[ $d == "declare -a"* ]]; then
+        declare -n lista=$n
+        printf "%s\0" "$n" a "${#lista[@]}" "${lista[@]}"
+        unset -n lista
+      else
+        printf "%s\0" "$n" s "${!n}"
+      fi
+    done
+  ' _ "$CONF" "${nombres[@]}"
+}
+
+carpetas_servidor() {
+  ssh_servidor "cd $(printf '%q' "$RUTA_MEDIOS") && find . -mindepth 1 -maxdepth 1 \\( -type d -o -xtype d \\) ! -name '.*' -printf '%f\\n'" | LC_ALL=C sort
+}
+
 estado_json() {
   local ip dlna_on=no videos jellyfin_on=no conexiones="[]"
   ip=$(ip_local)
@@ -883,6 +927,7 @@ estado_json() {
     "$RECIENTES_CANTIDAD" \
     "$(printf '%s\n' "${RECIENTES_CARPETAS[@]}" | json_textos)" \
     "$(lista_recientes | json_textos)"
+  printf ',"config":{"sin_aplicar":%s,"reindexara":%s}' "$(json_logico config_sin_aplicar)" "$(json_logico reindexara)"
   printf '}\n'
 }
 
@@ -1090,14 +1135,15 @@ comprobar_firewall() {
   fi
 }
 
+reindexara() {
+  local conf="$DB_DLNA/minidlna.conf"
+  [ "$DLNA" = si ] && [ -f "$DB_DLNA/files.db" ] && [ -f "$conf" ] || return 1
+  [ "$(grep '^media_dir=' "$conf")" != "$(directorios_dlna)" ]
+}
+
 comprobar_indice() {
-  local conf="$DB_DLNA/minidlna.conf" antes ahora
-  [ "$DLNA" = si ] || return
-  [ -f "$DB_DLNA/files.db" ] && [ -f "$conf" ] || return
   dlna_activo && return
-  antes=$(grep '^media_dir=' "$conf")
-  ahora=$(directorios_dlna)
-  if [ "$antes" != "$ahora" ]; then
+  if reindexara; then
     aviso "Has cambiado CARPETAS o RECIENTES: el DLNA va a indexar todo de nuevo. Sigue el avance con: medios progreso"
   fi
 }
@@ -1309,6 +1355,18 @@ case "${1:-estado}" in
     ;;
   _estado-json)
     estado_json
+    ;;
+  _config-json)
+    config_cruda | python3 "$SHARE/config.py" json --conf "$CONF" --variables "$(variables_config)"
+    ;;
+  _config-carpetas)
+    carpetas_servidor
+    ;;
+  _config-guardar)
+    exec python3 "$SHARE/config.py" guardar --conf "$CONF" --variables "$(variables_config)" --medios "$(readlink -f "$0")"
+    ;;
+  _validar-config)
+    exit 0
     ;;
   _total-videos)
     total_videos || exit 1

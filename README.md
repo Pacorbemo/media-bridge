@@ -1,15 +1,21 @@
 # media-bridge
 
-Lleva los vídeos de tu servidor de casa a cualquier red en la que esté tu portátil, para verlos en una tele o en un móvil que **no tienen Tailscale**.
+Lleva los vídeos de tu servidor de casa a cualquier red en la que esté tu portátil, para verlos en una televisión o en un móvil que **no tienen Tailscale**.
+
+Este proyecto nace de querer ver mi contenido en una televisión que no es mía. En ella no podía instalar Tailscale, pero sí tenía en la misma red un equipo conectado a mi red de Tailscale. La idea es aprovechar ese equipo como puente: la televisión habla con él como con cualquier aparato de su red, y él trae los vídeos de casa por el túnel.
+
+También sirve para televisiones cuyo sistema no tiene app de Jellyfin pero sí un reproductor de medios en red (DLNA), que es lo habitual: la televisión ve tus carpetas en su reproductor sin instalar nada.
+
+> **Probado únicamente en una televisión Hisense (VIDAA).** Debería funcionar con cualquier televisión que reproduzca contenido DLNA, pero no está comprobado.
 
 ```
- Tele / móvil ──Wi-Fi──► portátil ══Tailscale══► servidor de casa
-                         (media-bridge)            (Jellyfin, carpetas)
+ Televisión / móvil ──Wi-Fi──► portátil ══Tailscale══► servidor de casa
+                               (media-bridge)            (Jellyfin, carpetas)
 ```
 
 El portátil hace de intermediario:
 
-- **DLNA:** monta las carpetas del servidor por `sshfs` y las publica con `minidlna`. Cualquier tele con reproductor DLNA (Hisense VIDAA, Samsung, LG, consolas, VLC, Windows) las ve como un servidor más de la red, sin instalar nada.
+- **DLNA:** monta las carpetas del servidor por `sshfs` y las publica con `minidlna`. Cualquier televisión con reproductor DLNA (Hisense VIDAA, Samsung, LG, consolas, VLC, Windows) las ve como un servidor más de la red, sin instalar nada.
 - **Reenvío de puertos:** reenvía puertos del servidor, como el 8096 de Jellyfin, a la red local con `socat`. Los aparatos de esa red entran por `http://IP-del-portátil:8096`.
 - **Comando `medios`:** lo enciende y lo apaga todo, busca películas aunque no aciertes el nombre exacto y te enseña el progreso del indexado.
 
@@ -58,7 +64,7 @@ El servicio `minidlna` del sistema no hace falta: si lo tienes activado, desact�
 | `CARPETAS` | Subcarpetas que se publican y en las que se busca | `("Movies" "Tv Shows")` |
 | `REENVIOS` | Puertos que se reenvían; vacío para ninguno | `"8096"` |
 | `DLNA` | Publicar las carpetas por DLNA (`si`/`no`) | `si` |
-| `NOMBRE_DLNA` | Nombre que aparece en la tele | `media-bridge` |
+| `NOMBRE_DLNA` | Nombre que aparece en la televisión | `media-bridge` |
 | `PUERTO_DLNA` | Puerto del DLNA | `8200` |
 | `INTERFAZ` | Interfaz de la red local; vacío para detectarla | `wlan0` |
 | `PUNTO_MONTAJE` | Dónde se montan las carpetas | `$HOME/media-bridge` |
@@ -88,16 +94,16 @@ Parecidos (1):
 
 No necesita que el DLNA esté encendido: busca directamente en el servidor por SSH.
 
-En la tele, el servidor aparece en la lista de fuentes o en la app de medios con el nombre de `NOMBRE_DLNA`.
+En la televisión, el servidor aparece en la lista de fuentes o en la app de medios con el nombre de `NOMBRE_DLNA`.
 
 ## Cosas a tener en cuenta
 
-- **Sin conversión.** El DLNA entrega los ficheros tal cual: si la tele no sabe reproducir un formato (algunos AVI antiguos, ciertos audios), ese vídeo no se verá. Para esos, usa Jellyfin con el reenvío o VLC.
-- **La primera vez indexa todo**, y vuelve a hacerlo desde cero si cambias `CARPETAS`: minidlna no sabe añadir una sola carpeta. Mientras dura, la tele puede dar "no compatible" en lo que tenías abierto; vuelve a entrar en el servidor. Usa `medios progreso` para ver cuánto falta.
-- **Mismo rango de red en casa y fuera.** Si la red del portátil y la de casa usan la misma numeración (por ejemplo, las dos 192.168.1.x) y aceptas rutas de subred de Tailscale, el portátil contestará a la tele por el túnel y nada funcionará. Desactívalo con `sudo tailscale set --accept-routes=false`.
-- **Plex no sirve.** Aunque reenvíes el 32400, la app de Plex pide Plex Pass o Remote Watch Pass, porque plex.tv ve que la tele y el servidor tienen distinta IP pública. Eso no se arregla desde la red.
+- **Sin conversión.** El DLNA entrega los ficheros tal cual: si la televisión no sabe reproducir un formato (algunos AVI antiguos, ciertos audios), ese vídeo no se verá. Para esos, usa Jellyfin con el reenvío o VLC.
+- **La primera vez indexa todo**, y vuelve a hacerlo desde cero si cambias `CARPETAS`: minidlna no sabe añadir una sola carpeta. Mientras dura, la televisión puede dar "no compatible" en lo que tenías abierto; vuelve a entrar en el servidor. Usa `medios progreso` para ver cuánto falta.
+- **Mismo rango de red en casa y fuera.** Si la red del portátil y la de casa usan la misma numeración (por ejemplo, las dos 192.168.1.x) y aceptas rutas de subred de Tailscale, el portátil contestará a la televisión por el túnel y nada funcionará. Desactívalo con `sudo tailscale set --accept-routes=false`.
+- **Plex no sirve.** Aunque reenvíes el 32400, la app de Plex pide Plex Pass o Remote Watch Pass, porque plex.tv ve que la televisión y el servidor tienen distinta IP pública. Eso no se arregla desde la red.
 - **Enlaces simbólicos.** Se siguen en el servidor, así que valen carpetas con enlaces a montajes en la nube (rclone y similares). Esos vídeos tardan más en arrancar.
-- **Los servicios web ven la IP de Tailscale del portátil**, no la de la tele. Si Jellyfin limita la calidad por considerarlo remoto, añade `100.64.0.0/10` a sus redes LAN.
+- **Los servicios web ven la IP de Tailscale del portátil**, no la de la televisión. Si Jellyfin limita la calidad por considerarlo remoto, añade `100.64.0.0/10` a sus redes LAN.
 
 ## Desinstalar
 

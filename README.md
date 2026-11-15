@@ -90,7 +90,7 @@ Si algo falla, hay más capas donde mirar (la red de Docker, los permisos de FUS
 
 ### Con un asistente de IA
 
-Si usas Claude Code, Codex, Cursor u otro asistente, abre el repo con él y pídele que lo instale. [`AGENTS.md`](AGENTS.md) le explica qué comprobar, qué preguntarte y qué errores evitar (Claude Code lo carga solo a través de `CLAUDE.md`).
+Si usas Claude Code, Codex, Gemini/Antigravity, Cursor u otro asistente, abre el repo con él y pídele que lo instale. [`AGENTS.md`](AGENTS.md) le explica qué comprobar, qué preguntarte y qué errores evitar (Claude Code lo carga solo a través de `CLAUDE.md`, y Gemini a través de `GEMINI.md`).
 
 ## Configuración
 

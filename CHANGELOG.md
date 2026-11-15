@@ -4,7 +4,9 @@ Lo que cambia en cada versión de media-bridge. La versión instalada se ve con 
 
 ## Sin publicar
 
-Nada todavía.
+### Añadido
+
+- `GEMINI.md`, para que los asistentes de Google (Gemini CLI y Antigravity) carguen solos las instrucciones de `AGENTS.md`, igual que Claude Code con `CLAUDE.md`.
 
 ## 0.3.0
 
